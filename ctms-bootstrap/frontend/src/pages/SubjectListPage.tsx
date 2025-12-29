@@ -20,8 +20,9 @@ const SubjectListPage: React.FC = () => {
     const navigate = useNavigate();
     const { logout } = useAuth();
     const [globalFilter, setGlobalFilter] = React.useState('');
+    const [activeTab, setActiveTab] = React.useState<'active' | 'all'>('active');
 
-    const { data: subjects = [], isLoading, error } = useQuery({
+    const { data: allSubjects = [], isLoading, error } = useQuery({
         queryKey: ['subjects'],
         queryFn: async () => {
             const response = await subjectsApi.list();
@@ -29,16 +30,27 @@ const SubjectListPage: React.FC = () => {
         },
     });
 
+    // Filter subjects based on active tab
+    const subjects = React.useMemo(() => {
+        if (activeTab === 'active') {
+            return allSubjects.filter(s => s.status === 'Active');
+        }
+        return allSubjects;
+    }, [allSubjects, activeTab]);
+
     const columns = [
         columnHelper.accessor('subject_number', {
-            header: 'Subject ID',
+            header: 'Subject Number',
             cell: (info) => (
                 <span className="font-medium text-blue-600">{info.getValue()}</span>
             ),
         }),
-        columnHelper.accessor('sites.site_number', {
-            header: 'Site',
-            cell: (info) => info.getValue() || 'N/A',
+        columnHelper.accessor('dob', {
+            header: 'Date Of Birth',
+            cell: (info) => {
+                const date = new Date(info.getValue());
+                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            },
         }),
         columnHelper.accessor('sex', {
             header: 'Sex',
@@ -59,9 +71,15 @@ const SubjectListPage: React.FC = () => {
                 );
             },
         }),
-        columnHelper.accessor('enrollment_date', {
-            header: 'Enrollment Date',
-            cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+        columnHelper.display({
+            id: 'nextVisitName',
+            header: 'Next Visit Name',
+            cell: () => <span className="text-gray-400">-</span>,
+        }),
+        columnHelper.display({
+            id: 'nextVisitDate',
+            header: 'Next Visit Date',
+            cell: () => <span className="text-gray-400">-</span>,
         }),
     ];
 
@@ -111,20 +129,39 @@ const SubjectListPage: React.FC = () => {
 
             {/* Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {/* Active/All Tabs */}
+                <div className="mb-6">
+                    <div className="border-b border-gray-200">
+                        <nav className="-mb-px flex space-x-8">
+                            <button
+                                onClick={() => setActiveTab('active')}
+                                className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'active'
+                                        ? 'border-teal-600 text-teal-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    }`}
+                            >
+                                Active
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('all')}
+                                className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'all'
+                                        ? 'border-teal-600 text-teal-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    }`}
+                            >
+                                All
+                            </button>
+                        </nav>
+                    </div>
+                </div>
+
                 {/* Toolbar */}
-                <div className="mb-4 flex justify-between items-center">
-                    <input
-                        type="text"
-                        value={globalFilter ?? ''}
-                        onChange={(e) => setGlobalFilter(e.target.value)}
-                        placeholder="Search subjects..."
-                        className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                <div className="mb-4 flex justify-end items-center">
                     <button
                         onClick={() => navigate('/subjects/new')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 font-medium"
                     >
-                        + Enroll Subject
+                        Rollover
                     </button>
                 </div>
 

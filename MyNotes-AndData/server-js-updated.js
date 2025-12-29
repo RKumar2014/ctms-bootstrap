@@ -1,10 +1,9 @@
-// backend/server.ts
+// backend/server.js
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import authRoutes from './routes/auth.routes.js';
-import userRoutes from './routes/user.routes.js';
-import subjectRoutes from './routes/subject.routes.js';
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/user.js';
 
 dotenv.config();
 
@@ -21,7 +20,6 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/subjects', subjectRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -31,9 +29,9 @@ app.get('/health', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({
+  res.status(500).json({ 
     error: 'Internal server error',
-    message: err.message
+    message: err.message 
   });
 });
 

@@ -1,0 +1,34 @@
+# Subjects Tab Implementation Tasks
+
+## Phase 1: Connect Existing Pages to Dashboard
+- [ ] Add routes for Subject pages in [App.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/App.tsx)
+- [ ] Modify dashboard Subjects tab to navigate to `/subjects`
+- [ ] Verify existing pages load correctly
+
+## Phase 2: Enhance Subject List (Suvoda Parity)
+- [ ] Add Active/All tabs to filter subjects
+- [ ] Add DOB column with MMM-YYYY format
+- [ ] Add Next Visit Name column
+- [ ] Add Next Visit Date column
+- [ ] Rename "Enroll Subject" button to "Rollover"
+- [ ] Add explicit "Select" button per row
+- [ ] Add per-column filter dropdowns (optional)
+
+## Phase 3: Enhance Subject Detail Page
+- [ ] Update header to show "Subject Number | Status"
+- [ ] Format DOB as MMM-YYYY
+- [ ] Add consent time display
+- [ ] Implement Visit Schedule grid with real data
+- [ ] Add Drugs Assigned column to visits
+
+## Phase 4: Enhance Rollover Form
+- [ ] Rename title to "Rollover"
+- [ ] Add auto-generate subject number option
+- [ ] Add time picker to consent date
+- [ ] Change site selection to dropdown
+
+## Testing
+- [ ] Verify subjects list loads from API
+- [ ] Verify navigation between list/detail/enroll
+- [ ] Test subject creation workflow
+- [ ] Verify data displays correctly
