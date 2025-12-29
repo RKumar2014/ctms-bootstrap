@@ -1,0 +1,1133 @@
+# Clinical Trial Management System - Implementation Plan
+
+## Goal Description
+
+Build a production-ready clinical trial management system (CTMS) comparable to Suvoda, supporting the complete lifecycle of clinical trials from subject enrollment through drug accountability, compliance, and reporting. The system will be built from scratch with a new database schema and modern technology stack.
+
+**Target Timeline**: 12-15 months for full system, 6-8 months for MVP  
+**Budget**: $2M-$3M (full system), $800k-$1.2M (MVP)  
+**Team Size**: 12-15 people (full system), 6-8 people (MVP)
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **MVP vs. Full System Decision Required**
+> 
+> Please decide on the initial scope:
+> - **Option A (MVP)**: Core clinical workflows only - Subjects, Basic Drug Dispensing, 3 reports (6-8 months, $800k-$1.2M)
+> - **Option B (Full System)**: Complete parity with Suvoda - All 6 drug modules, 8 reports, ad-hoc builder, compliance (12-15 months, $2M-$3M)
+> 
+> **Recommendation**: Start with MVP (Option A), deploy to 1-2 pilot sites, then expand to full system based on feedback.
+
+> [!WARNING]
+> **Technology Stack Confirmation Needed**
+> 
+> Please confirm your preferred technology stack:
+> - **Frontend**: React vs. Angular vs. Vue
+> - **Backend**: Node.js (Express) vs. .NET Core vs. Spring Boot
+> - **Database**: PostgreSQL vs. SQL Server vs. MySQL
+> - **Data Grid**: AG-Grid ($999/dev license) vs. Kendo React Grid ($999/dev) vs. Open-source (MUI X Data Grid Pro)
+> 
+> **Recommendation**: React + Node.js + PostgreSQL + AG-Grid (proven stack, large community, cost-effective)
+
+> [!IMPORTANT]
+> **Compliance Requirements**
+> 
+> Confirm 21 CFR Part 11 compliance needs:
+> - Will this system be used for FDA-regulated trials? (Yes/No)
+> - Do you need full electronic signature workflows? (Yes/No)
+> - Do you need audit trail for all data changes? (Yes/No - likely Yes regardless)
+> 
+> **Impact**: Full compliance adds 2-3 months to timeline and requires a compliance specialist on the team.
+
+---
+
+## Proposed Changes
+
+### Phase 1: Foundation \u0026 Infrastructure (Months 1-2)
+
+#### [NEW] Infrastructure Setup
+
+**Purpose**: Set up development environment, CI/CD pipeline, and cloud infrastructure.
+
+**Components**:
+- Docker containerization for local development
+- Kubernetes cluster setup (AWS EKS, Azure AKS, or GCP GKE)
+- PostgreSQL database cluster with replication
+- Redis for session management and caching
+- CI/CD pipeline (GitHub Actions or GitLab CI)
+- Monitoring and logging (Datadog, New Relic, or ELK stack)
+
+**Deliverables**:
+- `docker-compose.yml` for local dev environment
+- Kubernetes manifests for production deployment
+- CI/CD workflows for automated testing and deployment
+
+---
+
+#### [NEW] Database Schema Design
+
+**Purpose**: Design and implement the complete database schema supporting all clinical trial operations.
+
+**Core Entities** (12+ tables):
+
+1. **Authentication \u0026 Authorization**
+   - `users` (user_id, username, password_hash, role, site_id, email, is_active)
+   - `roles` (role_id, role_name, permissions_json)
+   - `sessions` (session_id, user_id, token, expires_at)
+
+2. **Sites \u0026 Organizations**
+   - `sites` (site_id, site_number, site_name, pi_last_name, country, status, activated_date)
+   - `depots` (depot_id, depot_name, country, address, status)
+
+3. **Subjects**
+   - `subjects` (subject_id, subject_number, site_id, dob, sex, status, consent_date, enrollment_date, treatment_code)
+   - `subject_audit` (audit_id, subject_id, action, changed_by, changed_at, old_values_json, new_values_json)
+
+4. **Visit Schedule**
+   - `visits` (visit_id, visit_name, visit_sequence, expected_offset_days, expected_range_days)
+   - `subject_visits` (subject_visit_id, subject_id, visit_id, expected_date, actual_date, status)
+
+5. **Drug Management**
+   - `drug_units` (drug_unit_id, drug_code, drug_description, finished_lot, expiration_date, status, site_id, subject_id)
+   - `shipments` (shipment_id, shipment_type, source, destination_site_id, order_date, received_date, courier, tracking_number)
+   - `shipment_drug_units` (shipment_id, drug_unit_id)
+
+6. **Accountability**
+   - `subject_accountability` (accountability_id, subject_id, visit_id, drug_unit_id, qty_dosed, qty_remaining, qty_missing, reconciliation_date)
+   - `site_inventory_accountability` (accountability_id, site_id, drug_unit_id, qty_remaining, qty_missing, reconciliation_date)
+
+7. **Audit Trail**
+   - `data_changes` (change_id, subject_id, data_type, field_name, pre_value, post_value, reason, initiator_id, approver_id, change_date_utc)
+   - `electronic_signatures` (signature_id, user_id, action_type, action_reference_id, signature_timestamp_utc)
+
+8. **Notifications**
+   - `notifications` (notification_id, type, title, generated_on, subject_id, site_id, status, recipient_emails)
+   - `notification_templates` (template_id, type, subject_template, body_template)
+
+**Deliverables**:
+- `schema.sql` with all table definitions
+- Migration scripts (using Flyway, Liquibase, or Knex.js)
+- ER diagram documenting relationships
+- Seed data for development
+
+---
+
+#### [NEW] Backend API Foundation
+
+**Purpose**: Build the core API infrastructure with authentication, authorization, and base CRUD operations.
+
+**Technology**: Node.js + Express + TypeScript (or .NET Core, Spring Boot based on decision)
+
+**Modules**:
+- **Authentication Service**:
+  - `POST /api/auth/login` - Username/password login
+  - `POST /api/auth/logout` - Session termination
+  - `POST /api/auth/refresh` - Token refresh
+  - JWT token generation and validation
+  
+- **User Management Service**:
+  - `GET /api/users` - List users (admin only)
+  - `POST /api/users` - Create user
+  - `PUT /api/users/:id` - Update user
+  - `DELETE /api/users/:id` - Deactivate user
+  
+- **Site Management Service**:
+  - `GET /api/sites` - List sites
+  - `GET /api/sites/:id` - Get site details
+  - `POST /api/sites` - Create site (admin only)
+  - `PUT /api/sites/:id` - Update site
+
+**Security Features**:
+- Password hashing (bcrypt)
+- Role-based access control (RBAC) middleware
+- Input validation and sanitization
+- Rate limiting
+- CORS configuration
+- SQL injection prevention (parameterized queries)
+
+**Deliverables**:
+- `backend/` directory structure
+- Authentication and authorization middleware
+- Base CRUD endpoints for users and sites
+- API documentation (Swagger/OpenAPI)
+- Unit tests for authentication
+
+---
+
+#### [NEW] Frontend Foundation
+
+**Purpose**: Set up React application with routing, state management, and component library.
+
+**Technology**: React + TypeScript + Vite + React Router + React Query
+
+**Setup**:
+- Component library: Material-UI (MUI) or Ant Design for base components
+- State management: React Context API + React Query (server state)
+- Form handling: React Hook Form + Zod validation
+- HTTP client: Axios with interceptors for auth
+- Build tool: Vite (faster than Create React App)
+
+**Core Components**:
+- `LoginPage` - Username/password authentication
+- `Layout` - Main application shell with navigation tabs
+- `ProtectedRoute` - Route wrapper for authenticated pages
+- `ErrorBoundary` - Global error handling
+
+**Navigation Structure** (matching Suvoda):
+```jsx
+<Layout>
+  <Tabs>
+    <Tab label="My Studies" />
+    <Tab label="Subjects" />
+    <Tab label="Drug" />
+    <Tab label="Reports" />
+    <Tab label="Changes" />
+    <Tab label="Admin" />
+  </Tabs>
+  <Outlet /> {/* Page content */}
+</Layout>
+```
+
+**Deliverables**:
+- `frontend/` directory structure
+- Login flow with session management
+- Main layout with tab navigation
+- Protected route wrapper
+- Global error handling
+
+---
+
+### Phase 2: Core Clinical Module - Subjects (Months 3-5)
+
+#### [MODIFY] Backend - Subject Management API
+
+**Purpose**: Build complete API for subject enrollment, visit tracking, and status management.
+
+**Endpoints**:
+- `GET /api/subjects` - List subjects with filtering (site, status, date range)
+- `GET /api/subjects/:id` - Get subject details with visit schedule
+- `POST /api/subjects` - Create subject (Rollover workflow)
+- `PUT /api/subjects/:id` - Update subject demographics
+- `DELETE /api/subjects/:id` - Early terminate subject
+- `GET /api/subjects/:id/visits` - Get subject's visit schedule
+- `POST /api/subjects/:id/visits/:visitId/complete` - Mark visit as completed
+- `GET /api/subjects/:id/drugs` - Get drugs assigned to subject
+
+**Business Logic**:
+- Subject number generation: `[Site Number]-[Sequence]` (e.g., `1384-003`)
+- Visit schedule calculation: Expected date = Enrollment date + visit offset ± range
+- Status transitions: Screening → Active → Completed / Early Terminated
+- Validation: Unique subject number, valid DOB, consent date required
+
+**Deliverables**:
+- Subject controller with all CRUD operations
+- Visit schedule calculation engine
+- Subject number generation service
+- Validation middleware
+- Unit and integration tests
+
+---
+
+#### [NEW] Frontend - Subjects Module
+
+**Purpose**: Build the complete Subjects user interface matching Suvoda functionality.
+
+**Sub-Components**:
+
+1. **Subject List Page** (`SubjectListPage.jsx`)
+   - Two tabs: "Active" and "All"
+   - Data grid with columns: Subject Number, DOB, Sex, Status, Next Visit Name, Next Visit Date, Select button
+   - Advanced filtering using AG-Grid or Kendo React Grid
+   - Column-level filters with operators (Equals, Contains, Starts With)
+   - Sorting, grouping, pagination
+   - "Rollover" button to initiate enrollment
+
+2. **Subject Detail Page** (`SubjectDetailPage.jsx`)
+   - Header: Subject Number | Status
+   - Subject Information section:
+     - Subject Number (read-only)
+     - Date of Birth (MMM-YYYY format)
+     - Sex (Male/Female)
+     - Initial Informed Consent Date (with time)
+     - Early Termination Date (conditional)
+   - Visit Schedule section:
+     - Grid with columns: Visit Name, Expected Date, Actual Date, Drugs Assigned
+     - Click on visit to view/edit details
+
+3. **Rollover/Enrollment Form** (`RolloverForm.jsx`)
+   - Subject Number (auto-generated or manual)
+   - Date of Birth (date picker)
+   - Sex (dropdown)
+   - Initial Informed Consent Date (date + time picker)
+   - Validation and submission
+
+**Data Grid Implementation**:
+```jsx
+import { AgGridReact } from 'ag-grid-react';
+
+const SubjectListGrid = () => {
+  const [columnDefs] = useState([
+    { 
+      field: 'subjectNumber', 
+      headerName: 'Subject Number',
+      filter: 'agTextColumnFilter',
+      filterParams: { filterOptions: ['contains', 'equals', 'startsWith'] }
+    },
+    { 
+      field: 'dob', 
+      headerName: 'Date Of Birth',
+      valueFormatter: (params) => formatDate(params.value, 'MMM-YYYY')
+    },
+    // ... more columns
+  ]);
+
+  return <AgGridReact columnDefs={columnDefs} rowData={subjects} />;
+};
+```
+
+**Deliverables**:
+- Subject list page with Active/All tabs
+- AG-Grid integration with advanced filtering
+- Subject detail page with visit schedule
+- Rollover/Enrollment form
+- Date formatting utilities
+- Integration with backend API
+
+---
+
+#### [NEW] Visit Management
+
+**Purpose**: Implement visit schedule tracking and completion workflow.
+
+**Backend**:
+- `GET /api/visits` - Get defined visit schedule for study
+- `POST /api/subject-visits/:id/complete` - Complete a visit
+- `PUT /api/subject-visits/:id` - Update actual visit date
+- Business logic:
+  - Calculate expected date windows based on visit definitions
+  - Flag overdue visits (actual date > expected date + range)
+  - Validate visit sequence (can't skip visits)
+
+**Frontend**:
+- Visit schedule grid in Subject Detail page
+- Visit completion modal with:
+  - Actual date/time picker
+  - Drug assignment interface
+  - Validation (date within expected window)
+
+**Deliverables**:
+- Visit API endpoints
+- Visit schedule calculation service
+- Visit completion workflow
+- Overdue visit warnings
+
+---
+
+### Phase 3: Drug Management (Months 6-9)
+
+#### [NEW] Module 1: Drug Unit Management \u0026 Inventory
+
+**Purpose**: Serialized drug unit tracking with unique IDs and status management.
+
+**Backend**:
+- `GET /api/drug-units` - List drug units with filtering
+- `GET /api/drug-units/:id` - Get drug unit details
+- `POST /api/drug-units` - Create drug units (bulk operation for new lots)
+- `PUT /api/drug-units/:id/status` - Update drug unit status
+- `GET /api/drug-units/inventory` - Get current inventory levels by site/status
+
+**Drug Unit Statuses**:
+- Available
+- Assigned (to subject but not dispensed)
+- Dispensed
+- Damaged
+- Missing
+- Quarantined
+- Destroyed
+- Returned
+
+**Frontend**:
+- Drug unit list grid
+- Status update form (Update Site Inventory)
+- Inventory levels dashboard
+
+**Deliverables**:
+- Drug unit CRUD API
+- Inventory tracking service
+- Update Site Inventory UI (matching Suvoda)
+
+---
+
+#### [NEW] Module 2: Shipment Management
+
+**Purpose**: Track drug shipments from depots to sites with receipt confirmation.
+
+**Backend**:
+- `GET /api/shipments` - List shipments
+- `POST /api/shipments` - Create new shipment
+- `PUT /api/shipments/:id/receive` - Confirm receipt at site
+- `POST /api/shipments/:id/drug-units` - Add drug units to shipment
+- Business logic:
+  - Update drug unit site_id on receipt
+  - Update drug unit status to "Available"
+  - Generate notification to site on shipment
+
+**Frontend**:
+- Shipment list grid (Register Drug Shipment page)
+- Shipment receipt form with:
+  - Shipment ID
+  - Expected drug units list
+  - Received date
+  - Discrepancy reporting (if units damaged/missing)
+
+**Deliverables**:
+- Shipment API endpoints
+- Receipt confirmation workflow
+- Shipment tracking grid
+
+---
+
+#### [NEW] Module 3: Drug Dispensing at Visits
+
+**Purpose**: Assign and dispense drug units to subjects during visits.
+
+**Backend**:
+- `POST /api/subjects/:subjectId/visits/:visitId/dispense` - Dispense drugs at visit
+- Request body: `{ drugUnitIds: ['800588', '800589'], quantityDispensed: 30 }`
+- Business logic:
+  - Update drug_units.status to "Dispensed"
+  - Update drug_units.subject_id and assigned_date
+  - Create subject_accountability record
+  - Validate: Drug must be "Available" at the site
+
+**Frontend**:
+- Drug dispensing modal during visit completion
+- Available drug units list (filtered by site)
+- Multi-select drug unit picker
+- Quantity input
+
+**Deliverables**:
+- Drug dispensing API
+- Visit completion workflow with drug assignment
+- Available drug units lookup
+
+---
+
+#### [NEW] Module 4: Subject Accountability
+
+**Purpose**: Track drug reconciliation at subject/visit level with quantities dosed/remaining/missing.
+
+**Backend**:
+- `GET /api/accountability/subject` - Get subject accountability records
+- `POST /api/accountability/subject` - Submit accountability reconciliation
+- `PUT /api/accountability/subject/:id` - Update accountability record
+- Business logic:
+  - Calculate expected quantities based on visit schedule
+  - Flag discrepancies (Error if qty_dosed + qty_remaining + qty_missing ≠ qty_dispensed)
+  - Flag overdue reconciliations (Warning)
+
+**Frontend**:
+- Subject Accountability page with filters (Site, Subject, Visit)
+- Grid with columns:
+  - Drug Unit ID
+  - Subject Number, Visit Name
+  - Quantity Dosed, Quantity Remaining, Quantity Missing
+  - Reconciliation Date, Comment
+- Status indicators:
+  - 🔴 Error (quantities don't match)
+  - ⚠️ Warning (overdue)
+  - ℹ️ Info (monitor comment)
+- Submit button to save reconciliation
+
+**Deliverables**:
+- Subject accountability API
+- Accountability reconciliation page
+- Discrepancy detection logic
+- Visual status indicators
+
+---
+
+#### [NEW] Module 5: Site Inventory Accountability
+
+**Purpose**: Overall site-level inventory reconciliation for unassigned drug units.
+
+**Backend**:
+- `GET /api/accountability/site` - Get site inventory accountability
+- `POST /api/accountability/site` - Submit site inventory reconciliation
+
+**Frontend**:
+- Site Inventory Accountability page
+- Grid showing all drug units at site (unassigned)
+- Similar to Subject Accountability but without subject/visit filters
+
+**Deliverables**:
+- Site accountability API
+- Site inventory reconciliation UI
+
+---
+
+#### [NEW] Module 6: Drug Destruction Workflows
+
+**Purpose**: 21 CFR Part 11 compliant drug destruction with electronic signatures.
+
+**Backend - On Site Destruction**:
+- `POST /api/destruction/on-site` - Process on-site destruction
+- Request body:
+  ```json
+  {
+    "siteId": 1384,
+    "drugUnitIds": ["800588", "800589"],
+    "destructionDate": "2025-01-15",
+    "signatureUsername": "philtvsc",
+    "signaturePassword": "TrialSite1!"
+  }
+  ```
+- Business logic:
+  - Validate username/password
+  - Update drug_units.status to "Destroyed"
+  - Create electronic_signatures record
+  - Generate destruction manifest (PDF)
+
+**Backend - Shipment For Destruction**:
+- `POST /api/destruction/shipment` - Create destruction return shipment
+- Similar signature workflow
+- Update drug_units.status to "Returned For Destruction"
+- Create shipment record
+
+**Frontend**:
+- On Site Destruction page:
+  - Site dropdown
+  - Destruction date picker
+  - Serialized drugs multi-select (expandable section)
+  - Electronic signature section:
+    - Checkbox: "I acknowledge responsibility for this destruction"
+    - Username and Password inputs
+    - "Process Destruction" button
+  
+- Shipment For Destruction page:
+  - DDF (Destruction Destination Facility) dropdown
+  - Courier and Tracking Number inputs
+  - Similar signature workflow
+
+**Deliverables**:
+- Destruction API endpoints
+- Electronic signature validation
+- On-Site Destruction UI
+- Shipment For Destruction UI
+- Destruction manifest PDF generation
+
+---
+
+### Phase 4: Reporting System (Months 10-12)
+
+#### [NEW] Report 1: Site Monthly Summary
+
+**Purpose**: High-level enrollment tracking with dynamic monthly columns.
+
+**Backend**:
+- `GET /api/reports/site-monthly-summary` - Generate report
+- SQL query with dynamic pivot for monthly columns:
+  ```sql
+  SELECT 
+    s.site_number,
+    s.site_name,
+    s.pi_last_name,
+    COUNT(CASE WHEN DATE_TRUNC('month', subj.enrollment_date) = '2025-12-01' THEN 1 END) AS "Dec-2025",
+    COUNT(CASE WHEN DATE_TRUNC('month', subj.enrollment_date) = '2025-11-01' THEN 1 END) AS "Nov-2025",
+    -- ... dynamic columns for each month
+  FROM sites s
+  LEFT JOIN subjects subj ON s.site_id = subj.site_id
+  GROUP BY s.site_id
+  ```
+
+**Frontend**:
+- AG-Grid with horizontal scrolling
+- Monthly columns generated dynamically
+- Excel export button
+
+**Deliverables**:
+- Site Monthly Summary API
+- Dynamic pivot query generation
+- Report UI with export
+
+---
+
+#### [NEW] Reports 2-8: Subject \u0026 Drug Reports
+
+**Reports to Implement**:
+1. **Subject Visit Summary** (18 fields)
+2. **Subject Summary** (13 fields)
+3. **Subject Data Changes** (12 fields - audit trail)
+4. **Drug Accountability** (24 fields - most complex)
+5. **Drug Shipment Summary** (15 fields)
+6. **Inventory Levels** (7+ fields)
+7. **Site Drug Unit Summary** (12 fields)
+
+**Backend Pattern** (same for all):
+- `GET /api/reports/[report-name]` with query parameters for filtering
+- SQL queries joining relevant tables
+- Return JSON with complete field list
+
+**Frontend Pattern** (same for all):
+- Report list page (Reports dashboard)
+- Click report → navigate to report detail page
+- AG-Grid with:
+  - All columns defined (horizontal scrolling enabled)
+  - Column-level filters
+  - Sorting, grouping
+  - Pagination
+- "Export to Excel" button (using ExcelJS)
+- "Export to PDF" button (select reports only)
+
+**Example - Drug Accountability Report**:
+```jsx
+const DrugAccountabilityReport = () => {
+  const { data: reportData } = useQuery('drug-accountability', fetchDrugAccountability);
+
+  const columnDefs = [
+    { field: 'drugUnitId', headerName: 'Drug Unit ID', filter: true },
+    { field: 'drugCode', headerName: 'Drug Code', filter: true },
+    { field: 'drugDescription', headerName: 'Drug Description', filter: true },
+    // ... 24 total columns
+    { field: 'destructionDate', headerName: 'Destruction Date', filter: 'agDateColumnFilter' }
+  ];
+
+  const exportToExcel = () => {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(reportData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Drug Accountability');
+    XLSX.writeFile(workbook, 'Drug_Accountability.xlsx');
+  };
+
+  return (
+    <>
+      <Button onClick={exportToExcel}>Export to Excel</Button>
+      <AgGridReact columnDefs={columnDefs} rowData={reportData} />
+    </>
+  );
+};
+```
+
+**Deliverables**:
+- 8 report API endpoints
+- Report list dashboard
+- 8 report detail pages with AG-Grid
+- Excel export for all reports
+- PDF export for Subject Visit Summary
+
+---
+
+#### [NEW] Ad-hoc Report Builder (Optional - adds 2 months)
+
+**Purpose**: Allow users to create custom reports by selecting fields.
+
+**Backend**:
+- `GET /api/reports/adhoc/fields` - Get available fields from base datasets
+- `POST /api/reports/adhoc/preview` - Preview custom report
+- `POST /api/reports/adhoc/save` - Save custom report configuration
+- Dynamic SQL generation based on selected fields
+
+**Frontend**:
+- Field selection interface (checkboxes grouped by category)
+- Column aliasing inputs
+- Sorting configuration
+- Report preview
+- Save/share functionality
+
+**Deliverables** (if included):
+- Ad-hoc report API
+- Dynamic SQL query builder
+- Report builder UI
+- Saved reports list
+
+---
+
+### Phase 5: Audit \u0026 Compliance (Months 13-14)
+
+#### [NEW] Changes Module (Self Support)
+
+**Purpose**: Data correction workflow with mandatory reason and approval.
+
+**Backend**:
+- `GET /api/changes/subjects` - List subjects for correction
+- `POST /api/changes/demographic` - Submit demographic change request
+  - Request: `{ subjectId, field, oldValue, newValue, reason }`
+  - Creates record in data_changes table with status "Pending"
+- `POST /api/changes/visit` - Submit visit data change request
+- `PUT /api/changes/:id/approve` - Approve change (monitor role)
+- Business logic:
+  - Log pre-value and post-value
+  - Require mandatory "Reason" field
+  - Update subject/visit table only after approval
+
+**Frontend**:
+- Changes page with subject listing
+- "Update" button opens:
+  - **Demographic Data tab**: Edit DOB, Sex with Reason field
+  - **Visit Data tab**: List of performed visits, click to edit Visit Date with Reason
+- Approval queue (for monitor role)
+
+**Deliverables**:
+- Changes API endpoints
+- Data correction workflow
+- Changes UI matching Suvoda
+- Approval workflow (if multi-user)
+
+---
+
+#### [NEW] Comprehensive Audit Trail
+
+**Purpose**: Log all CRUD operations with pre/post values for compliance.
+
+**Implementation**:
+- Create audit tables for all primary entities:
+  - `subjects_audit`
+  - `drug_units_audit`
+  - `shipments_audit`
+  - etc.
+  
+**Backend Middleware**:
+```javascript
+const auditMiddleware = async (req, res, next) => {
+  const originalSend = res.send;
+  res.send = function(data) {
+    // Log the change to audit table
+    auditLog.create({
+      userId: req.user.id,
+      action: req.method,
+      table: req.params.resource,
+      recordId: req.params.id,
+      oldValues: req.originalRecord, // Fetched in middleware
+      newValues: req.body,
+      timestamp: new Date()
+    });
+    originalSend.call(this, data);
+  };
+  next();
+};
+```
+
+**Deliverables**:
+- Audit tables for all entities
+- Audit logging middleware
+- Subject Data Changes report (consumes audit tables)
+
+---
+
+#### [NEW] E-mail Notifications
+
+**Purpose**: Event-driven notifications for key trial events.
+
+**Backend**:
+- Notification service with event listeners:
+  - Subject enrolled → email to site coordinator
+  - Shipment received → email to site and monitor
+  - Accountability overdue → email to site
+  - Change request submitted → email to monitor
+  
+- `POST /api/notifications/send` - Manual notification
+- `GET /api/notifications` - List all sent notifications
+
+**Email Template Engine**:
+```javascript
+const sendNotification = async (type, data) => {
+  const template = await getTemplate(type);
+  const subject = template.subject.replace('{{subjectNumber}}', data.subjectNumber);
+  const body = template.body.replace('{{siteName}}', data.siteName);
+  
+  await emailService.send({
+    to: data.recipients,
+    subject,
+    body
+  });
+  
+  await Notification.create({ type, title: subject, status: 'Sent', ...data });
+};
+```
+
+**Frontend**:
+- Admin > E-mail Notifications page
+- Filters: Site, Depot, Date Range
+- Grid showing all sent notifications
+
+**Deliverables**:
+- Notification service with event triggers
+- Email template management
+- E-mail Notifications log UI
+
+---
+
+### Phase 6: Testing, Security \u0026 Deployment (Months 15-16)
+
+#### [MODIFY] Security Hardening
+
+**Purpose**: Ensure production-ready security and compliance.
+
+**Implementation**:
+- SQL injection prevention (already using parameterized queries)
+- XSS protection (Content Security Policy headers)
+- CSRF protection (CSRF tokens for state-changing operations)
+- Rate limiting on authentication endpoints
+- Input validation and sanitization (Zod schemas)
+- HTTPS enforcement
+- Secure session management (HttpOnly, Secure cookies)
+- Password policy enforcement:
+  - Minimum 12 characters
+  - Complexity requirements
+  - Password expiry (90 days)
+  - Password history (can't reuse last 5 passwords)
+
+**Deliverables**:
+- Security audit report
+- Penetration testing results
+- Fixes for vulnerabilities
+
+---
+
+#### [NEW] Automated Testing Suite
+
+**Purpose**: Ensure code quality and prevent regressions.
+
+**Testing Strategy**:
+- **Unit Tests**: 80% code coverage
+  - Backend: Jest for API endpoints and business logic
+  - Frontend: Jest + React Testing Library for components
+  
+- **Integration Tests**:
+  - API integration tests with test database
+  - Database migration tests
+  
+- **End-to-End Tests**:
+  - Playwright or Cypress for critical workflows:
+    - Login flow
+    - Subject enrollment
+    - Drug dispensing
+    - Report generation
+  
+**Example E2E Test**:
+```javascript
+test('Subject enrollment workflow', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('#username', 'testuser');
+  await page.fill('#password', 'password');
+  await page.click('button[type="submit"]');
+  
+  await page.click('text=Subjects');
+  await page.click('button:has-text("Rollover")');
+  await page.fill('#dob', '1990-05-15');
+  await page.selectOption('#sex', 'Male');
+  await page.click('button:has-text("Submit")');
+  
+  await expect(page.locator('text=Subject 1384-001 enrolled successfully')).toBeVisible();
+});
+```
+
+**Deliverables**:
+- Unit test suite (80%+ coverage)
+- Integration test suite
+- E2E test suite for critical paths
+- CI pipeline running tests on every commit
+
+---
+
+#### [NEW] User Acceptance Testing (UAT)
+
+**Purpose**: Validate system with real clinical trial personnel.
+
+**UAT Plan**:
+1. Deploy to staging environment
+2. Recruit 5-10 clinical trial coordinators
+3. Provide test scenarios:
+   - Enroll 5 subjects
+   - Receive a drug shipment
+   - Dispense drugs at 3 visits
+   - Reconcile accountability
+   - Generate reports
+4. Collect feedback on:
+   - Usability issues
+   - Missing features
+   - Performance problems
+5. Prioritize and fix issues
+
+**Deliverables**:
+- UAT test plan
+- Staging environment setup
+- UAT feedback report
+- Bug fixes and improvements
+
+---
+
+#### [NEW] Documentation
+
+**Purpose**: Provide user manuals and SOPs for system usage.
+
+**Documents to Create**:
+1. **User Manual** (50-100 pages):
+   - System overview
+   - Login and navigation
+   - Subject enrollment workflow
+   - Drug dispensing workflow
+   - Running reports
+   - Troubleshooting
+
+2. **System Administrator Guide**:
+   - Installation and setup
+   - User management
+   - Site configuration
+   - Database maintenance
+   - Backup and recovery
+
+3. **Standard Operating Procedures (SOPs)**:
+   - SOP: Subject Enrollment
+   - SOP: Drug Dispensing
+   - SOP: Accountability Reconciliation
+   - SOP: Data Correction
+   - SOP: Drug Destruction
+
+4. **API Documentation**:
+   - Swagger/OpenAPI specification
+   - Authentication guide
+   - Example requests/responses
+
+**Deliverables**:
+- Complete user manual with screenshots
+- Admin guide
+- SOPs for all critical workflows
+- API documentation
+
+---
+
+#### [NEW] Production Deployment
+
+**Purpose**: Deploy to production environment with monitoring.
+
+**Infrastructure**:
+- Kubernetes cluster (3+ nodes for redundancy)
+- PostgreSQL with replication (primary + 2 replicas)
+- Redis cluster for sessions
+- Load balancer (AWS ALB, nginx)
+- CDN for static assets (CloudFront, Cloudflare)
+- Backup strategy:
+  - Database backups every 6 hours
+  - Retention: 30 days
+  - Off-site storage (S3, Azure Blob)
+
+**Monitoring**:
+- Application performance monitoring (APM): Datadog or New Relic
+- Log aggregation: ELK stack or Splunk
+- Uptime monitoring: Pingdom or UptimeRobot
+- Alerting: PagerDuty for critical issues
+
+**Deliverables**:
+- Production deployment scripts
+- Monitoring dashboards
+- Alerting rules
+- Disaster recovery plan
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+**Unit Tests**:
+```bash
+# Backend
+cd backend
+npm test -- --coverage
+
+# Frontend
+cd frontend
+npm test -- --coverage
+```
+Expected: 80%+ coverage for both
+
+**Integration Tests**:
+```bash
+cd backend
+npm run test:integration
+```
+Expected: All API endpoints tested
+
+**E2E Tests**:
+```bash
+cd e2e
+npx playwright test
+```
+Expected: All critical workflows passing
+
+---
+
+### Manual Verification
+
+**Functional Testing Checklist**:
+- [ ] Login with valid credentials
+- [ ] Login fails with invalid credentials
+- [ ] Subject enrollment creates subject with correct number format
+- [ ] Visit schedule calculates expected dates correctly
+- [ ] Drug dispensing updates drug unit status
+- [ ] Subject accountability detects discrepancies
+- [ ] Drug destruction requires electronic signature
+- [ ] All 8 reports display correct data
+- [ ] Excel export produces valid .xlsx file
+- [ ] Changes module logs pre/post values
+- [ ] Notifications sent on key events
+- [ ] Horizontal scrolling works on wide reports
+- [ ] Filters work on all grids
+- [ ] Role-based access control enforced
+
+**Performance Testing**:
+- [ ] Load test with 100 concurrent users
+- [ ] Report generation completes in < 5 seconds for datasets with 10,000 records
+- [ ] Subject list page loads in < 2 seconds
+- [ ] Database queries optimized (no N+1 queries)
+
+**Security Testing**:
+- [ ] Penetration testing completed
+- [ ] SQL injection tests pass
+- [ ] XSS tests pass
+- [ ] Authentication bypass tests fail (as expected)
+- [ ] HTTPS enforced
+
+**Compliance Testing** (if 21 CFR Part 11 required):
+- [ ] Electronic signatures capture username, timestamp, meaning of signature
+- [ ] Audit trail captures all changes with pre/post values
+- [ ] System enforces password complexity
+- [ ] Session timeout after 30 minutes of inactivity
+- [ ] Failed login attempts logged
+- [ ] System prevents deletion of audit records
+
+---
+
+### User Acceptance Testing
+
+**UAT with Clinical Trial Coordinators**:
+1. Deploy to staging: `https://staging.ctms.example.com`
+2. Provide test credentials for 5 sites
+3. Test scenarios:
+   - Enroll 20 subjects across 5 sites
+   - Receive 3 drug shipments
+   - Dispense drugs at 50 visits
+   - Reconcile accountability for 20 subjects
+   - Generate all 8 reports
+   - Submit 5 data correction requests
+4. Collect feedback via survey
+5. Track bugs in Jira/GitHub Issues
+6. Fix critical bugs before production deployment
+
+---
+
+## Timeline Summary
+
+| Phase | Duration | End Date | Key Deliverables |
+|-------|----------|----------|------------------|
+| Phase 1: Foundation | 2 months | Month 2 | Infrastructure, Database, Auth API, Frontend Shell |
+| Phase 2: Subjects | 3 months | Month 5 | Subject enrollment, Visit tracking, Subject detail page |
+| Phase 3: Drug Management | 4 months | Month 9 | All 6 drug modules, Accountability, Destruction |
+| Phase 4: Reporting | 3 months | Month 12 | 8 reports, Excel export, AG-Grid integration |
+| Phase 5: Audit \u0026 Compliance | 2 months | Month 14 | Changes module, Audit trail, Notifications |
+| Phase 6: Testing \u0026 Deployment | 2 months | Month 16 | UAT, Security hardening, Production deployment |
+
+**Total**: 16 months (includes 1 month buffer)
+
+**MVP Milestone**: Month 8 - Core Subjects + Basic Drug Dispensing + 3 Reports deployed to pilot sites
+
+---
+
+## Budget Breakdown
+
+### Personnel Costs (16 months)
+
+| Role | Count | Monthly Rate | Total Cost |
+|------|-------|--------------|------------|
+| Senior Full-Stack Developer | 4 | $12,000 | $768,000 |
+| Frontend Developer | 2 | $10,000 | $320,000 |
+| Backend Developer | 2 | $10,000 | $320,000 |
+| DevOps Engineer | 1 | $13,000 | $208,000 |
+| QA Engineer | 2 | $8,000 | $256,000 |
+| Compliance Specialist | 1 | $10,000 | $160,000 |
+| Product Manager | 1 | $11,000 | $176,000 |
+| UX/UI Designer | 1 | $9,000 | $144,000 |
+
+**Total Personnel**: $2,352,000
+
+### Infrastructure \u0026 Tools (16 months)
+
+| Item | Monthly Cost | Total Cost |
+|------|--------------|------------|
+| AWS/Azure Cloud Infrastructure | $3,000 | $48,000 |
+| AG-Grid Enterprise Licenses (10 devs) | - | $9,990 (one-time) |
+| CI/CD Tools (GitHub Enterprise) | $500 | $8,000 |
+| Monitoring (Datadog) | $1,000 | $16,000 |
+| Email Service (SendGrid) | $200 | $3,200 |
+| SSL Certificates | $50 | $800 |
+
+**Total Infrastructure**: $86,000
+
+### Other Costs
+
+| Item | Cost |
+|------|------|
+| Security Audit \u0026 Penetration Testing | $25,000 |
+| Legal/Compliance Review | $15,000 |
+| Third-party Integrations | $20,000 |
+| Contingency (10%) | $235,000 |
+
+**Total Other**: $295,000
+
+### **Grand Total: $2,733,000**
+
+Rounded: **$2.7M - $3M**
+
+---
+
+## Risk Mitigation
+
+| Risk | Probability | Impact | Mitigation Strategy |
+|------|-------------|--------|---------------------|
+| Requirement changes mid-project | High | High | Use agile methodology, bi-weekly demos, iterative feedback |
+| Team member turnover | Medium | High | Document code thoroughly, pair programming, knowledge transfer sessions |
+| Technology complexity (AG-Grid, compliance) | Medium | Medium | Proof of concept early, dedicated training, vendor support |
+| Database performance issues at scale | Low | High | Performance testing from Phase 1, query optimization, database indexing |
+| 21 CFR Part 11 compliance failure | Low | Critical | Early engagement with compliance specialist, third-party audit |
+| Security breach | Low | Critical | Security hardening from day 1, penetration testing, regular audits |
+| Delayed deployment to pilot sites | Medium | Medium | MVP-first approach, staging environment, UAT buffer time |
+
+---
+
+## Success Criteria
+
+**Technical Success**:
+- ✅ All 8 reports generating correct data
+- ✅ Subject enrollment workflow completing in < 2 minutes
+- ✅ Drug accountability discrepancies detected automatically
+- ✅ System handles 100 concurrent users
+- ✅ 99.9% uptime in production
+- ✅ Zero data loss (verified by backups)
+
+**Business Success**:
+- ✅ Deployed to 5+ pilot sites
+- ✅ 50+ subjects enrolled using the system
+- ✅ 100+ drug units tracked from shipment to destruction
+- ✅ Positive feedback from 80%+ of UAT participants
+- ✅ Compliance audit passed (if applicable)
+
+**Compliance Success** (if 21 CFR Part 11):
+- ✅ Electronic signatures meet all requirements
+- ✅ Audit trail captures all data changes
+- ✅ System prevents unauthorized access
+- ✅ Third-party compliance audit passed
+
+---
+
+## Next Steps
+
+1. **Approve this implementation plan** or request modifications
+2. **Confirm technology stack** (React + Node.js + PostgreSQL recommended)
+3. **Decide on MVP vs. Full System** approach
+4. **Assemble the team** (hire or contract)
+5. **Set up project management** (Jira, Azure DevOps, or GitHub Projects)
+6. **Kick off Phase 1** with infrastructure setup and database design
