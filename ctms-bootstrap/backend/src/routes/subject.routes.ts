@@ -26,7 +26,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             .from('subjects')
             .select(`
         *,
-        sites (site_number, site_name)
+        sites (site_number, site_name),
+        subject_visits!inner (
+          visit_id,
+          expected_date,
+          actual_date,
+          status,
+          visits (visit_name, visit_sequence)
+        )
       `)
             .order('created_at', { ascending: false });
 
@@ -41,7 +48,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
         if (error) throw error;
 
-        res.json(data);
+        // Process data to add next visit info
+        const processedData = data?.map(subject => {
+            // Find next scheduled visit (not completed)
+            const nextVisit = subject.subject_visits
+                ?.filter((sv: any) => sv.status === 'Scheduled' && !sv.actual_date)
+                .sort((a: any, b: any) => {
+                    const aSeq = a.visits?.visit_sequence || 0;
+                    const bSeq = b.visits?.visit_sequence || 0;
+                    return aSeq - bSeq;
+                })[0];
+
+            return {
+                ...subject,
+                next_visit_name: nextVisit?.visits?.visit_name || null,
+                next_visit_date: nextVisit?.expected_date || null
+            };
+        });
+
+        res.json(processedData);
     } catch (error) {
         console.error('Get subjects error:', error);
         res.status(500).json({ error: 'Failed to fetch subjects' });
@@ -72,6 +97,33 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('Get subject error:', error);
         res.status(500).json({ error: 'Failed to fetch subject' });
+    }
+});
+
+// GET /api/subjects/:id/visits - Get visits for a specific subject
+router.get('/:id/visits', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const { data, error } = await supabase
+            .from('subject_visits')
+            .select(`
+                subject_visit_id,
+                visit_id,
+                expected_date,
+                actual_date,
+                status,
+                visits (visit_id, visit_name, visit_sequence)
+            `)
+            .eq('subject_id', id)
+            .order('visits(visit_sequence)', { ascending: true });
+
+        if (error) throw error;
+
+        res.json(data);
+    } catch (error) {
+        console.error('Get subject visits error:', error);
+        res.status(500).json({ error: 'Failed to fetch subject visits' });
     }
 });
 

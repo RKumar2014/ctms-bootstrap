@@ -1,155 +1,67 @@
-# Subjects Tab Implementation Plan
+# Subject Accountability - Data Display Fix
 
-## Goal Description
+## Problem Summary
+Data **IS** in the database and API returns it correctly, but the **frontend displays empty columns** because it uses wrong field names.
 
-Integrate the existing Subjects pages into the dashboard navigation and enhance them to match Suvoda's specification. The dashboard currently has a simplified "Subjects" tab with hardcoded content, but there are already more complete components in the `pages/` folder that need to be connected.
+## Root Cause Analysis
 
----
+### API Returns (Correct):
+```json
+{
+  "drug_unit_id": 5,
+  "subject": { "subject_number": "1384-002" },
+  "visit": { "visits": { "visit_name": "Rollover" } },
+  "drug_unit": { "drug_code": "DRUG-A", "status": "Dispensed" },
+  "qty_dispensed": 30,
+  "reconciliation_date": "2024-01-20T00:00:00+00:00",
+  "comments": "Initial dispensing"
+}
+```
 
-## Current State Analysis
-
-### ✅ What Already Exists (Not Currently Used)
-
-The project already has these components in `frontend/src/pages/`:
-
-| Component | File | Status |
-|-----------|------|--------|
-| [SubjectListPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectListPage.tsx) | Full TanStack Table implementation with sorting, pagination, filtering | **Exists, not connected** |
-| [SubjectDetailPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectDetailPage.tsx) | Basic detail view with subject info | **Exists, not connected** |
-| [SubjectEnrollPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectEnrollPage.tsx) | Enrollment form with validation | **Exists, not connected** |
-
-### Backend API (Already Implemented)
-
-| Endpoint | File | Status |
-|----------|------|--------|
-| `GET /api/subjects` | [subject.routes.ts](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/backend/src/routes/subject.routes.ts) | ✅ Working |
-| `GET /api/subjects/:id` | [subject.routes.ts](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/backend/src/routes/subject.routes.ts) | ✅ Working |
-| `POST /api/subjects` | [subject.routes.ts](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/backend/src/routes/subject.routes.ts) | ✅ Working |
-| `PUT /api/subjects/:id` | [subject.routes.ts](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/backend/src/routes/subject.routes.ts) | ✅ Working |
-
-### ❌ Current Problem
-
-The [dashboard.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/components/dashboard.tsx) component has its own inline "Subjects" tab content (lines 196-232) that:
-- Uses hardcoded data instead of the API
-- Doesn't use the existing [SubjectListPage](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectListPage.tsx#19-236) component
-- Doesn't connect to the real pages
+### Frontend Reads (Incorrect):
+| Column | Frontend Uses | API Returns | Fix |
+|--------|--------------|-------------|-----|
+| Drug Unit ID | `record.drug_unit_id` | `drug_unit_id` | ✅ Correct |
+| Unit Description | `record.description` | `drug_unit.drug_code` | ❌ Wrong |
+| Subject Number | `record.subject_number` | `subject.subject_number` | ❌ Wrong |
+| Visit Name | `record.visit_name` | `visit.visits.visit_name` | ❌ Wrong |
+| Current Status | `record.current_status` | `drug_unit.status` | ❌ Wrong |
+| Assigned Status | `record.assigned_status` | N/A (needs logic) | ❌ Wrong |
+| Quantity Dosed | `record.qty_dosed` | `qty_dispensed` | ❌ Wrong |
+| Quantity Remaining | `record.qty_remaining` | Calculated | ❌ Wrong |
+| Quantity Missing | `record.qty_missing` | N/A | ❌ Wrong |
+| Reconciliation Date | `record.reconciliation_date` | `reconciliation_date` | ✅ Correct (needs formatting) |
+| Comment | `record.comment` | `comments` | ❌ Wrong |
 
 ---
 
 ## Proposed Changes
 
-### Phase 1: Connect Existing Pages to Dashboard
+### 1. Fix Frontend Field Mappings
 
-#### [MODIFY] [dashboard.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/components/dashboard.tsx)
+#### [MODIFY] [SubjectAccountabilityPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/drug/SubjectAccountabilityPage.tsx)
 
-**Change**: Replace the hardcoded Subjects tab content with a navigation link or embedded component that uses the existing [SubjectListPage](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectListPage.tsx#19-236).
+Update table row rendering to use correct nested field paths:
 
-**Options**:
-1. **Option A (Recommended)**: Make Subjects tab navigate to `/subjects` route (separate page)
-2. **Option B**: Embed [SubjectListPage](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectListPage.tsx#19-236) component directly inside the tab
-
----
-
-#### [MODIFY] [App.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/App.tsx)
-
-**Change**: Add routes for existing Subject pages:
-
-```tsx
-<Route path="/subjects" element={<ProtectedRoute><SubjectListPage /></ProtectedRoute>} />
-<Route path="/subjects/new" element={<ProtectedRoute><SubjectEnrollPage /></ProtectedRoute>} />
-<Route path="/subjects/:id" element={<ProtectedRoute><SubjectDetailPage /></ProtectedRoute>} />
-```
-
----
-
-### Phase 2: Enhance Subject List to Match Suvoda
-
-#### [MODIFY] [SubjectListPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectListPage.tsx)
-
-**Changes Needed**:
-
-| Feature | Current State | Required Change |
-|---------|--------------|-----------------|
-| **Active/All Tabs** | ❌ Missing | Add tab navigation to filter Active vs All subjects |
-| **DOB Column** | ❌ Missing | Add column with MMM-YYYY format |
-| **Next Visit Name** | ❌ Missing | Add column (requires backend join) |
-| **Next Visit Date** | ❌ Missing | Add column (requires backend join) |
-| **"Rollover" Button** | Shows "Enroll Subject" | Rename to "Rollover" |
-| **Column Filters** | Has global filter | Add per-column filter dropdowns |
-| **Select Button** | Row click navigates | Add explicit "Select" button per row |
-
----
-
-### Phase 3: Enhance Subject Detail Page
-
-#### [MODIFY] [SubjectDetailPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectDetailPage.tsx)
-
-**Changes Needed**:
-
-| Feature | Current State | Required Change |
-|---------|--------------|-----------------|
-| **Header Format** | "Subject Details" | Change to "Subject Number \| Status" format |
-| **Visit Schedule Grid** | Placeholder text only | Implement real grid with Expected/Actual dates |
-| **Drugs Assigned Column** | ❌ Missing | Add column (requires drug_units join) |
-| **DOB Format** | Shows full date | Format as MMM-YYYY |
-| **Consent Time** | Shows date only | Add time component |
-
----
-
-### Phase 4: Enhance Rollover Form
-
-#### [MODIFY] [SubjectEnrollPage.tsx](file:///c:/Users/reesh/TrailSite-Project/clinical-trialsite-app/ctms-bootstrap/frontend/src/pages/SubjectEnrollPage.tsx)
-
-**Changes Needed**:
-
-| Feature | Current State | Required Change |
-|---------|--------------|-----------------|
-| **Title** | "Enroll New Subject" | Change to "Rollover" |
-| **Subject Number** | Manual entry | Add auto-generation option (Site-Sequence) |
-| **Consent Date** | Date only | Add time picker |
-| **Site Selection** | Number input | Change to dropdown with site names |
+| Field | Change To |
+|-------|-----------|
+| Unit Description | `record.drug_unit?.drug_code` |
+| Subject Number | `record.subject?.subject_number` |
+| Visit Name | `record.visit?.visits?.visit_name` |
+| Current Status | `record.drug_unit?.status` |
+| Quantity Dosed | `record.qty_dispensed` |
+| Comment | `record.comments` |
 
 ---
 
 ## Verification Plan
 
-### Manual Testing
-
-1. **Navigate to Subjects tab** → Should show list with real data from API
-2. **Click "Rollover" button** → Should open enrollment form
-3. **Submit enrollment form** → Should create subject and redirect to list
-4. **Click subject row** → Should navigate to detail page
-5. **View visit schedule** → Should show grid (even if empty initially)
-
-### API Testing
-
-```bash
-# Test list subjects
-curl http://localhost:3000/api/subjects -H "Authorization: Bearer <token>"
-
-# Test create subject
-curl -X POST http://localhost:3000/api/subjects \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{"subjectNumber":"1384-001","dob":"1990-01-15","sex":"Male","consentDate":"2024-01-01"}'
-```
-
----
-
-## Implementation Priority
-
-1. **Phase 1** - Connect existing pages (minimal effort, immediate value)
-2. **Phase 2** - Enhance Subject List (moderate effort)
-3. **Phase 3** - Enhance Detail Page (moderate effort)
-4. **Phase 4** - Enhance Rollover Form (low effort)
-
-> [!TIP]
-> **Recommendation**: Start with Phase 1 to immediately connect the existing pages. This gives you a working Subjects module that can be enhanced iteratively.
-
----
-
-## Questions for Review
-
-1. **Navigation Style**: Should the Subjects tab open in a new page (`/subjects`) or stay within the dashboard tabs?
-2. **Data Availability**: Do you have test data in the Supabase `subjects` table, or should we seed some?
-3. **Visit Schedule**: Is the `subject_visits` table populated with visit definitions?
+After fixing field mappings:
+1. Refresh Subject Accountability page
+2. Select Site 1384, Subject 1384-002, Visit < All >
+3. Verify 2 records display with all columns populated:
+   - Drug Unit IDs: 5, 10
+   - Unit Description: DRUG-A, DRUG-B
+   - Subject Number: 1384-002
+   - Visit Names: Rollover, Enrollment (Visit 1)
+   - Status: Dispensed

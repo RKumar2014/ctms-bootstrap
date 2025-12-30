@@ -46,11 +46,29 @@ export const subjectsApi = {
     update: (id: string, data: any) => api.put(`/subjects/${id}`, data),
 };
 
+// Sites API
+export const sitesApi = {
+    list: () => api.get('/sites'),
+};
+
 // Drug Units API
 export const drugUnitsApi = {
     list: (params?: { site?: string; status?: string }) =>
         api.get('/drug-units', { params }),
+    getSiteDrugUnits: (siteId: string) =>
+        api.get(`/drug-units/site/${siteId}`),
+    update: (id: string, data: any) => api.put(`/drug-units/${id}`, data),
+    bulkUpdateSite: (siteId: string, status: string) =>
+        api.put(`/drug-units/bulk-update-site/${siteId}`, { status }),
     create: (data: any) => api.post('/drug-units', data),
+};
+
+// Accountability API
+export const accountabilityApi = {
+    list: (params?: { site_id?: string; subject_id?: string; visit_id?: string }) =>
+        api.get('/accountability', { params }),
+    create: (data: any) => api.post('/accountability', data),
+    bulkSubmit: (records: any[]) => api.post('/accountability/bulk-submit', { records }),
 };
 
 // Reports API

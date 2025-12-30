@@ -16,6 +16,8 @@ export interface Subject {
     consent_date: string;
     enrollment_date: string;
     termination_date?: string;
+    next_visit_name?: string | null;
+    next_visit_date?: string | null;
 }
 
 export interface DrugUnit {

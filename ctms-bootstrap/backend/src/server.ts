@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import subjectRoutes from './routes/subject.routes.js';
+import drugUnitRoutes from './routes/drugUnit.routes.js';
+import siteRoutes from './routes/site.routes.js';
+import accountabilityRoutes from './routes/accountability.routes.js';
 
 dotenv.config();
 
@@ -22,6 +25,9 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/drug-units', drugUnitRoutes);
+app.use('/api/sites', siteRoutes);
+app.use('/api/accountability', accountabilityRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

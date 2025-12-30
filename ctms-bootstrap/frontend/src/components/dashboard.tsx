@@ -137,13 +137,15 @@ const Dashboard: React.FC = () => {
                   onClick={() => {
                     if (tab.id === 'subjects') {
                       navigate('/subjects');
+                    } else if (tab.id === 'drug') {
+                      navigate('/drug');
                     } else {
                       setActiveTab(tab.id);
                     }
                   }}
                   className={`flex flex-col items-center justify-center px-8 py-4 transition-all relative min-w-[120px] ${activeTab === tab.id
-                      ? 'text-gray-700 bg-gray-50'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    ? 'text-gray-700 bg-gray-50'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                     }`}
                   style={{
                     borderBottom: activeTab === tab.id ? '3px solid #0d9488' : '3px solid transparent'
