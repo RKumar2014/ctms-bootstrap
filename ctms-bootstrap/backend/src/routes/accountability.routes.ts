@@ -50,7 +50,17 @@ router.get('/', authenticateToken, async (req, res) => {
 // Create or update accountability record
 router.post('/', authenticateToken, async (req, res) => {
     try {
-        const { subject_id, visit_id, drug_unit_id, qty_dispensed, qty_returned, reconciliation_date, comments } = req.body;
+        const { 
+            subject_id, 
+            visit_id, 
+            drug_unit_id, 
+            qty_dispensed, 
+            qty_returned, 
+            reconciliation_date, 
+            comments,
+            date_of_first_dose,  // Captured at dispense time
+            pills_per_day        // Captured at dispense time (from protocol)
+        } = req.body;
 
         // Check if record already exists
         const { data: existing } = await supabase
@@ -71,6 +81,8 @@ router.post('/', authenticateToken, async (req, res) => {
                     qty_returned,
                     reconciliation_date,
                     comments,
+                    date_of_first_dose: date_of_first_dose || existing.date_of_first_dose,
+                    pills_per_day: pills_per_day || existing.pills_per_day || 1,
                     updated_at: new Date().toISOString()
                 })
                 .eq('accountability_id', existing.accountability_id)
@@ -79,7 +91,7 @@ router.post('/', authenticateToken, async (req, res) => {
             if (error) throw error;
             result = data[0];
         } else {
-            // Create new record
+            // Create new record with first dose date captured at dispense
             const { data, error } = await supabase
                 .from('accountability')
                 .insert({
@@ -89,7 +101,9 @@ router.post('/', authenticateToken, async (req, res) => {
                     qty_dispensed,
                     qty_returned,
                     reconciliation_date,
-                    comments
+                    comments,
+                    date_of_first_dose: date_of_first_dose || new Date().toISOString().split('T')[0], // Default to today
+                    pills_per_day: pills_per_day || 1
                 })
                 .select();
 
@@ -169,6 +183,172 @@ router.post('/bulk-submit', authenticateToken, async (req, res) => {
         });
     } catch (error: any) {
         console.error('Error bulk submitting accountability:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update accountability record (for comments, dates, pills_per_day)
+router.put('/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { comments, date_of_first_dose, date_of_last_dose, pills_per_day } = req.body;
+
+        // Build update object with only provided fields
+        const updateData: any = {
+            updated_at: new Date().toISOString()
+        };
+
+        if (comments !== undefined) updateData.comments = comments;
+        if (date_of_first_dose !== undefined) updateData.date_of_first_dose = date_of_first_dose;
+        if (date_of_last_dose !== undefined) updateData.date_of_last_dose = date_of_last_dose;
+        if (pills_per_day !== undefined) updateData.pills_per_day = pills_per_day;
+
+        // Recalculate compliance if dates are being updated
+        if (date_of_first_dose !== undefined || date_of_last_dose !== undefined) {
+            const { data: existing } = await supabase
+                .from('accountability')
+                .select('qty_dispensed, qty_returned, date_of_first_dose, date_of_last_dose, pills_per_day')
+                .eq('accountability_id', id)
+                .single();
+
+            if (existing) {
+                const effectiveFirstDose = date_of_first_dose || existing.date_of_first_dose;
+                const effectiveLastDose = date_of_last_dose || existing.date_of_last_dose;
+                const effectivePillsPerDay = pills_per_day || existing.pills_per_day || 1;
+
+                if (effectiveFirstDose && effectiveLastDose && existing.qty_returned !== null) {
+                    const firstDose = new Date(effectiveFirstDose);
+                    const lastDose = new Date(effectiveLastDose);
+                    const timeDiff = lastDose.getTime() - firstDose.getTime();
+                    const days_used = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
+                    const expected_pills = days_used * effectivePillsPerDay;
+                    const pills_used = existing.qty_dispensed - existing.qty_returned;
+                    const compliance_percentage = expected_pills > 0 
+                        ? Math.round((pills_used / expected_pills) * 10000) / 100 
+                        : null;
+
+                    updateData.days_used = days_used;
+                    updateData.expected_pills = expected_pills;
+                    updateData.pills_used = pills_used;
+                    updateData.compliance_percentage = compliance_percentage;
+                }
+            }
+        }
+
+        const { data, error } = await supabase
+            .from('accountability')
+            .update(updateData)
+            .eq('accountability_id', id)
+            .select();
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Accountability record not found' });
+        }
+
+        res.json(data[0]);
+    } catch (error: any) {
+        console.error('Error updating accountability:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Record return for existing accountability record with enhanced compliance calculation
+router.put('/:id/return', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { 
+            qty_returned, 
+            return_date, 
+            date_of_first_dose,
+            date_of_last_dose,
+            pills_per_day,
+            return_status,  // RETURNED, NOT_RETURNED, WASTED, LOST, DESTROYED
+            comments 
+        } = req.body;
+
+        // Validate qty_returned doesn't exceed qty_dispensed
+        const { data: existing, error: fetchError } = await supabase
+            .from('accountability')
+            .select('qty_dispensed, drug_unit_id')
+            .eq('accountability_id', id)
+            .single();
+
+        if (fetchError || !existing) {
+            return res.status(404).json({ error: 'Accountability record not found' });
+        }
+
+        if (qty_returned > existing.qty_dispensed) {
+            return res.status(400).json({ 
+                error: `Cannot return more than dispensed (${existing.qty_dispensed})` 
+            });
+        }
+
+        // Calculate compliance metrics
+        let days_used = null;
+        let expected_pills = null;
+        let pills_used = null;
+        let compliance_percentage = null;
+
+        // Pills used = dispensed - returned (in bottle)
+        pills_used = existing.qty_dispensed - qty_returned;
+
+        // Calculate days used if both dates provided
+        if (date_of_first_dose && date_of_last_dose) {
+            const firstDose = new Date(date_of_first_dose);
+            const lastDose = new Date(date_of_last_dose);
+            const timeDiff = lastDose.getTime() - firstDose.getTime();
+            days_used = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1; // +1 to include both days
+            
+            // Calculate expected pills
+            const pillsPerDayValue = pills_per_day || 1;
+            expected_pills = days_used * pillsPerDayValue;
+
+            // Calculate compliance percentage
+            // Compliance = (Pills Used / Expected Pills) × 100
+            if (expected_pills > 0) {
+                compliance_percentage = Math.round((pills_used / expected_pills) * 10000) / 100; // Round to 2 decimal places
+            }
+        }
+
+        // Update the accountability record with return data and compliance calculations
+        const { data, error } = await supabase
+            .from('accountability')
+            .update({
+                qty_returned,
+                return_date: return_date || new Date().toISOString(),
+                date_of_first_dose: date_of_first_dose || null,
+                date_of_last_dose: date_of_last_dose || null,
+                pills_per_day: pills_per_day || 1,
+                return_status: return_status || 'RETURNED',  // Default to RETURNED
+                days_used,
+                expected_pills,
+                pills_used,
+                compliance_percentage,
+                reconciliation_date: new Date().toISOString(),
+                comments,
+                updated_at: new Date().toISOString()
+            })
+            .eq('accountability_id', id)
+            .select();
+
+        if (error) throw error;
+
+        // Optionally update the drug unit status to reflect return
+        if (existing.drug_unit_id) {
+            await supabase
+                .from('drug_units')
+                .update({
+                    status: 'Returned',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('drug_unit_id', existing.drug_unit_id);
+        }
+
+        res.json(data[0]);
+    } catch (error: any) {
+        console.error('Error recording return:', error);
         res.status(500).json({ error: error.message });
     }
 });

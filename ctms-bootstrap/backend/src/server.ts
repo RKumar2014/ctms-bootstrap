@@ -8,6 +8,7 @@ import subjectRoutes from './routes/subject.routes.js';
 import drugUnitRoutes from './routes/drugUnit.routes.js';
 import siteRoutes from './routes/site.routes.js';
 import accountabilityRoutes from './routes/accountability.routes.js';
+import drugRoutes from './routes/drug.routes.js';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/subjects', subjectRoutes);
 app.use('/api/drug-units', drugUnitRoutes);
 app.use('/api/sites', siteRoutes);
 app.use('/api/accountability', accountabilityRoutes);
+app.use('/api/drug', drugRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

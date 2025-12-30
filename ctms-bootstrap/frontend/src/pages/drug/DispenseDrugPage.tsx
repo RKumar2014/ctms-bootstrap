@@ -13,6 +13,8 @@ const DispenseDrugPage: React.FC = () => {
 
     const [selectedDrugUnit, setSelectedDrugUnit] = useState('');
     const [qtyDispensed, setQtyDispensed] = useState(30);
+    const [firstDoseDate, setFirstDoseDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
+    const [pillsPerDay, setPillsPerDay] = useState(1);
     const [comments, setComments] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
@@ -48,10 +50,53 @@ const DispenseDrugPage: React.FC = () => {
         enabled: !!subject?.site_id,
     });
 
+    // Fetch previous visit's accountability to validate first dose date
+    const { data: previousVisitData } = useQuery({
+        queryKey: ['previous-visit-accountability', subjectId, visitDetails?.visit?.visit_sequence],
+        queryFn: async () => {
+            // Get all accountability records for this subject
+            const response = await accountabilityApi.list({ subject_id: subjectId });
+            const records = response.data || [];
+            
+            // Get the current visit's sequence
+            const currentSequence = visitDetails?.visit?.visit_sequence || 0;
+            
+            // Find the previous visit's accountability record (one sequence lower)
+            const previousRecord = records.find((r: any) => {
+                const recordVisitSequence = r.visit?.visit?.visit_sequence || r.visit?.visit_sequence || 0;
+                return recordVisitSequence === currentSequence - 1;
+            });
+            
+            return previousRecord;
+        },
+        enabled: !!subjectId && !!visitDetails?.visit?.visit_sequence && visitDetails.visit.visit_sequence > 1,
+    });
+
+    // Validate first dose date against previous visit's last dose
+    const getFirstDoseWarning = (): string | null => {
+        if (!previousVisitData) return null;
+        
+        const prevLastDose = previousVisitData.date_of_last_dose;
+        if (!prevLastDose) {
+            return `Warning: Previous visit's drug has not been returned yet. First Dose Date may need adjustment.`;
+        }
+        
+        const prevLastDoseDate = new Date(prevLastDose);
+        const firstDoseDateObj = new Date(firstDoseDate);
+        
+        if (firstDoseDateObj < prevLastDoseDate) {
+            return `Warning: First Dose Date (${firstDoseDate}) is before previous visit's Last Dose Date (${prevLastDose}). This may indicate an overlap.`;
+        }
+        
+        return null;
+    };
+    
+    const firstDoseWarning = getFirstDoseWarning();
+
     // Dispense mutation
     const dispenseMutation = useMutation({
         mutationFn: async (data: any) => {
-            // Create accountability record
+            // Create accountability record with First Dose Date and Pills Per Day
             const accResponse = await accountabilityApi.create({
                 subject_id: parseInt(subjectId!),
                 visit_id: parseInt(visitId!),
@@ -59,6 +104,8 @@ const DispenseDrugPage: React.FC = () => {
                 qty_dispensed: qtyDispensed,
                 qty_returned: 0,
                 reconciliation_date: new Date().toISOString(),
+                date_of_first_dose: firstDoseDate,  // Captured at dispense time
+                pills_per_day: pillsPerDay,          // Captured at dispense time
                 comments: comments
             });
 
@@ -77,6 +124,8 @@ const DispenseDrugPage: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['subject-accountability'] });
             queryClient.invalidateQueries({ queryKey: ['available-drug-units'] });
             setSelectedDrugUnit('');
+            setFirstDoseDate(new Date().toISOString().split('T')[0]); // Reset to today
+            setPillsPerDay(1);
             setComments('');
         },
         onError: (error: any) => {
@@ -117,20 +166,20 @@ const DispenseDrugPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <div className="bg-white shadow">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-900">Dispense Drug</h1>
-                    <button
-                        onClick={() => navigate(-1)}
-                        className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                    >
-                        ← Back
-                    </button>
-                </div>
+        <div className="p-6">
+            {/* Page Header */}
+            <div className="mb-6 flex justify-between items-center">
+                <h1 className="text-2xl font-bold text-gray-900">Dispense Drug</h1>
+                <button
+                    onClick={() => navigate(-1)}
+                    className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-md"
+                >
+                    ← Back
+                </button>
             </div>
 
-            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Content */}
+            <div className="max-w-4xl">
                 {/* Success Message */}
                 {successMessage && (
                     <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded">
@@ -213,6 +262,55 @@ const DispenseDrugPage: React.FC = () => {
                                 </p>
                             )}
                         </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Date of First Dose *
+                                </label>
+                                <input
+                                    type="date"
+                                    value={firstDoseDate}
+                                    onChange={(e) => setFirstDoseDate(e.target.value)}
+                                    className={`w-full px-3 py-2 border rounded-md ${firstDoseWarning ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    When the patient will start taking the medication
+                                </p>
+                                {firstDoseWarning && (
+                                    <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded-md">
+                                        <p className="text-xs text-yellow-800">⚠️ {firstDoseWarning}</p>
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Pills Per Day *
+                                </label>
+                                <input
+                                    type="number"
+                                    value={pillsPerDay}
+                                    onChange={(e) => setPillsPerDay(parseInt(e.target.value) || 1)}
+                                    min={1}
+                                    max={10}
+                                    className="w-32 px-3 py-2 border border-gray-300 rounded-md"
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    As per study protocol
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Duration Preview */}
+                        {qtyDispensed > 0 && pillsPerDay > 0 && (
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                                <p className="text-sm text-blue-800">
+                                    <strong>Expected Duration:</strong>{' '}
+                                    {Math.floor(qtyDispensed / pillsPerDay)} days 
+                                    ({qtyDispensed} pills ÷ {pillsPerDay} pills/day)
+                                </p>
+                            </div>
+                        )}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">

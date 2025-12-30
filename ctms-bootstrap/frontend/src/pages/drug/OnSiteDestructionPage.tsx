@@ -47,30 +47,14 @@ const OnSiteDestructionPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            {/* Header */}
-            <div className="bg-white shadow">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-900">On Site Destruction</h1>
-                    <div className="flex items-center space-x-4">
-                        <button
-                            onClick={() => navigate('/drug')}
-                            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                        >
-                            ← Back to Drug Management
-                        </button>
-                        <button
-                            onClick={logout}
-                            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                        >
-                            Logout
-                        </button>
-                    </div>
-                </div>
+        <div className="p-6">
+            {/* Page Header */}
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">On Site Destruction</h1>
             </div>
 
             {/* Content */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div>
                 <div className="bg-white shadow rounded-lg p-6">
                     <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
                         <p className="text-sm text-yellow-700">

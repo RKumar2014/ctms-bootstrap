@@ -69,6 +69,29 @@ export const accountabilityApi = {
         api.get('/accountability', { params }),
     create: (data: any) => api.post('/accountability', data),
     bulkSubmit: (records: any[]) => api.post('/accountability/bulk-submit', { records }),
+    // Record return with enhanced compliance calculation
+    recordReturn: (id: string, data: { 
+        qty_returned: number; 
+        return_date?: string; 
+        date_of_first_dose?: string;
+        date_of_last_dose?: string;
+        pills_per_day?: number;
+        return_status?: string;  // RETURNED, NOT_RETURNED, WASTED, LOST, DESTROYED
+        comments?: string;
+    }) => api.put(`/accountability/${id}/return`, data),
+    // Update accountability record (for fixing dates, comments, etc.)
+    update: (id: string, data: {
+        date_of_first_dose?: string;
+        date_of_last_dose?: string;
+        pills_per_day?: number;
+        comments?: string;
+    }) => api.put(`/accountability/${id}`, data),
+};
+
+// Inventory API (Master Log)
+export const inventoryApi = {
+    getMasterLog: (siteId?: string) =>
+        api.get('/drug/master-log', { params: { site_id: siteId } }),
 };
 
 // Reports API

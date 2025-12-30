@@ -1,83 +1,194 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { reportsApi } from '../lib/api';
-import { useAuth } from '../context/AuthContext';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, Users, Activity, ClipboardCheck, Download, BarChart3 } from 'lucide-react';
 
 const ReportsPage: React.FC = () => {
-    const { logout } = useAuth();
+    const navigate = useNavigate();
+    const [selectedReport, setSelectedReport] = useState<string | null>(null);
 
-    const { data: subjectSummary = [] } = useQuery({
-        queryKey: ['reports', 'subject-summary'],
-        queryFn: async () => {
-            const response = await reportsApi.subjectSummary();
-            return response.data;
+    const reports = [
+        {
+            id: 'enrollment',
+            title: 'Enrollment Report',
+            description: 'Subject screening and enrollment statistics by site',
+            icon: Users,
+            color: 'text-teal-600',
+            bgColor: 'bg-teal-50',
         },
-    });
-
-    const { data: siteEnrollment = [] } = useQuery({
-        queryKey: ['reports', 'site-enrollment'],
-        queryFn: async () => {
-            const response = await reportsApi.siteEnrollment();
-            return response.data;
+        {
+            id: 'drug-accountability',
+            title: 'Drug Accountability Report',
+            description: 'Complete drug dispensation and return log',
+            icon: Activity,
+            color: 'text-blue-600',
+            bgColor: 'bg-blue-50',
         },
-    });
+        {
+            id: 'compliance',
+            title: 'Compliance Summary',
+            description: 'Subject compliance rates and statistics',
+            icon: ClipboardCheck,
+            color: 'text-purple-600',
+            bgColor: 'bg-purple-50',
+        },
+        {
+            id: 'inventory',
+            title: 'Inventory Status Report',
+            description: 'Current drug inventory levels by site',
+            icon: BarChart3,
+            color: 'text-orange-600',
+            bgColor: 'bg-orange-50',
+        },
+        {
+            id: 'audit-trail',
+            title: 'Audit Trail Report',
+            description: 'Complete system audit log for compliance',
+            icon: FileText,
+            color: 'text-red-600',
+            bgColor: 'bg-red-50',
+        },
+    ];
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <div className="bg-white shadow">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-                    <button onClick={logout} className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900">
-                        Logout
-                    </button>
-                </div>
+        <div className="p-6">
+            {/* Page Header */}
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+                <p className="text-gray-500 mt-1">Generate and download study reports</p>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-                {/* Subject Summary Report */}
+            {/* Report Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                {reports.map((report) => {
+                    const Icon = report.icon;
+                    return (
+                        <button
+                            key={report.id}
+                            onClick={() => setSelectedReport(report.id)}
+                            className={`p-5 rounded-lg border-2 text-left transition-all ${
+                                selectedReport === report.id
+                                    ? 'border-teal-500 shadow-md'
+                                    : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                            }`}
+                        >
+                            <div className={`w-12 h-12 ${report.bgColor} rounded-lg flex items-center justify-center mb-3`}>
+                                <Icon className={`w-6 h-6 ${report.color}`} />
+                            </div>
+                            <h3 className="font-semibold text-gray-800">{report.title}</h3>
+                            <p className="text-sm text-gray-500 mt-1">{report.description}</p>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Report Preview / Actions */}
+            {selectedReport && (
                 <div className="bg-white shadow rounded-lg p-6">
-                    <h2 className="text-lg font-semibold mb-4">Subject Summary</h2>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-lg font-semibold text-gray-800">
+                            {reports.find(r => r.id === selectedReport)?.title}
+                        </h2>
+                        <div className="flex gap-3">
+                            <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
+                                <Download className="w-4 h-4" />
+                                Export CSV
+                            </button>
+                            <button className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center gap-2">
+                                <Download className="w-4 h-4" />
+                                Export PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Report Filters */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Site</label>
+                            <select className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
+                                <option>All Sites</option>
+                                <option>1384</option>
+                                <option>1385</option>
+                                <option>1386</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
+                            <input type="date" className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
+                            <input type="date" className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                        </div>
+                        <div className="flex items-end">
+                            <button className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                                Generate Report
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Sample Report Preview */}
+                    <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subject ID</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Enrollment Date</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Site</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">
+                                        {selectedReport === 'enrollment' ? 'Enrolled' : 
+                                         selectedReport === 'drug-accountability' ? 'Dispensed' :
+                                         selectedReport === 'compliance' ? 'Avg Compliance' :
+                                         selectedReport === 'inventory' ? 'Available' : 'Records'}
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">
+                                        {selectedReport === 'enrollment' ? 'Completed' : 
+                                         selectedReport === 'drug-accountability' ? 'Returned' :
+                                         selectedReport === 'compliance' ? 'On Target' :
+                                         selectedReport === 'inventory' ? 'Dispensed' : 'Changes'}
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Total</th>
                                 </tr>
                             </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {subjectSummary.map((subject: any) => (
-                                    <tr key={subject.subject_id}>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm">{subject.subject_number}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm">{subject.sites?.site_number}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm">{subject.status}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm">
-                                            {new Date(subject.enrollment_date).toLocaleDateString()}
-                                        </td>
-                                    </tr>
-                                ))}
+                            <tbody className="divide-y divide-gray-200">
+                                <tr className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm">1384</td>
+                                    <td className="px-4 py-3 text-sm">3</td>
+                                    <td className="px-4 py-3 text-sm">1</td>
+                                    <td className="px-4 py-3 text-sm font-medium">4</td>
+                                </tr>
+                                <tr className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm">1385</td>
+                                    <td className="px-4 py-3 text-sm">2</td>
+                                    <td className="px-4 py-3 text-sm">0</td>
+                                    <td className="px-4 py-3 text-sm font-medium">2</td>
+                                </tr>
+                                <tr className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm">1386</td>
+                                    <td className="px-4 py-3 text-sm">0</td>
+                                    <td className="px-4 py-3 text-sm">0</td>
+                                    <td className="px-4 py-3 text-sm font-medium">0</td>
+                                </tr>
                             </tbody>
+                            <tfoot className="bg-gray-100">
+                                <tr>
+                                    <td className="px-4 py-3 text-sm font-semibold">Total</td>
+                                    <td className="px-4 py-3 text-sm font-semibold">5</td>
+                                    <td className="px-4 py-3 text-sm font-semibold">1</td>
+                                    <td className="px-4 py-3 text-sm font-semibold">6</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </div>
+            )}
 
-                {/* Site Enrollment Report */}
+            {/* No Report Selected State */}
+            {!selectedReport && (
                 <div className="bg-white shadow rounded-lg p-6">
-                    <h2 className="text-lg font-semibold mb-4">Site Enrollment Summary</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {siteEnrollment.map((site: any) => (
-                            <div key={site.site_id} className="border rounded-lg p-4">
-                                <h3 className="font-medium text-gray-900">{site.site_name}</h3>
-                                <p className="text-sm text-gray-500">Site {site.site_number}</p>
-                                <p className="mt-2 text-2xl font-bold text-blue-600">{site.subject_count || 0}</p>
-                                <p className="text-xs text-gray-500">Subjects Enrolled</p>
-                            </div>
-                        ))}
+                    <div className="text-center py-8 text-gray-500">
+                        <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                        <p>Select a report type above to generate</p>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };

@@ -1,11 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { Package, FileText, ClipboardCheck, BarChart3, AlertTriangle, Truck } from 'lucide-react';
+import { Package, FileText, ClipboardCheck, BarChart3, AlertTriangle, Truck, ScrollText } from 'lucide-react';
 
 const DrugPage: React.FC = () => {
     const navigate = useNavigate();
-    const { logout } = useAuth();
 
     const drugActions = [
         {
@@ -37,6 +35,13 @@ const DrugPage: React.FC = () => {
             path: '/drug/site-inventory-accountability'
         },
         {
+            id: 'master-log',
+            title: 'Master Accountability Log',
+            description: 'Complete lifecycle tracking for all inventory bottles',
+            icon: ScrollText,
+            path: '/drug/master-log'
+        },
+        {
             id: 'on-site-destruction',
             title: 'On Site Destruction',
             description: '21 CFR Part 11 compliant destruction of drug units',
@@ -53,40 +58,35 @@ const DrugPage: React.FC = () => {
     ];
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            {/* Header */}
-            <div className="bg-white shadow">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-900">Drug Management</h1>
-                    <div className="flex items-center space-x-4">
-                        <button
-                            onClick={() => navigate('/dashboard')}
-                            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                        >
-                            ← Back to Dashboard
-                        </button>
-                        <button
-                            onClick={logout}
-                            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                        >
-                            Logout
-                        </button>
-                    </div>
-                </div>
+        <div className="p-6">
+            {/* Page Header */}
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">Drug Management</h1>
             </div>
 
             {/* Content */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="bg-white shadow rounded-lg p-6">
-                    <h2 className="text-lg font-semibold mb-6">Drug Supply Chain Management</h2>
+            <div className="bg-white shadow rounded-lg p-6">
+                <h2 className="text-lg font-semibold mb-6">Drug Supply Chain Management</h2>
 
-                    {/* Button List (Suvoda style) */}
-                    <div className="flex flex-col space-y-3 max-w-md">
-                        {drugActions.map((action) => (
+                {/* Button Layout (4 top, 3 bottom) */}
+                <div className="flex flex-col gap-3">
+                    <div className="flex gap-3">
+                        {drugActions.slice(0, 4).map((action) => (
                             <button
                                 key={action.id}
                                 onClick={() => navigate(action.path)}
-                                className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 font-medium text-left"
+                                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50 hover:border-teal-500 font-medium transition-colors whitespace-nowrap"
+                            >
+                                {action.title}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex gap-3">
+                        {drugActions.slice(4).map((action) => (
+                            <button
+                                key={action.id}
+                                onClick={() => navigate(action.path)}
+                                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50 hover:border-teal-500 font-medium transition-colors whitespace-nowrap"
                             >
                                 {action.title}
                             </button>
