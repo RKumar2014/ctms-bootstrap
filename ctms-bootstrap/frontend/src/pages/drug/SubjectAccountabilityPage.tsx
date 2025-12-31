@@ -4,6 +4,17 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sitesApi, subjectsApi, accountabilityApi, api } from '../../lib/api';
 
+// Helper function to format date strings without timezone shift
+// Handles both ISO dates (2024-12-08) and full timestamps (2024-12-08T00:00:00Z)
+const formatDateString = (dateString: string | null | undefined): string => {
+    if (!dateString) return '-';
+    // Extract just the date part (YYYY-MM-DD) to avoid timezone issues
+    const datePart = dateString.split('T')[0];
+    const [year, month, day] = datePart.split('-');
+    if (!year || !month || !day) return '-';
+    return `${parseInt(month)}/${parseInt(day)}/${year}`;
+};
+
 const SubjectAccountabilityPage: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -83,13 +94,10 @@ const SubjectAccountabilityPage: React.FC = () => {
                 // Get today's date as string for simpler future date comparison (avoids timezone issues)
                 const todayDateStr = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
 
-                // Get dispense date from the record
-                const dispenseDate = selectedRecord.created_at || selectedRecord.dispense_date;
-                const dispenseDateObj = parseDateValue(dispenseDate);
-
-                // NEW VALIDATION 1: Return Date >= Dispense Date
-                if (returnDateObj && dispenseDateObj && returnDateObj.getTime() < dispenseDateObj.getTime()) {
-                    warnings.push('Return date cannot be before dispense date');
+                // VALIDATION 1: Return Date >= First Dose Date (not created_at)
+                // Use first dose date because that's when patient started taking medication
+                if (returnDateObj && firstDoseObj && returnDateObj.getTime() < firstDoseObj.getTime()) {
+                    warnings.push('Return date cannot be before first dose date');
                 }
 
                 // NEW VALIDATION 2: Return Date not in future (string comparison avoids timezone issues)
@@ -922,14 +930,10 @@ const SubjectAccountabilityPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    {record.date_of_first_dose
-                                                        ? new Date(record.date_of_first_dose).toLocaleDateString()
-                                                        : '-'}
+                                                    {formatDateString(record.date_of_first_dose)}
                                                 </td>
                                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    {record.date_of_last_dose
-                                                        ? new Date(record.date_of_last_dose).toLocaleDateString()
-                                                        : '-'}
+                                                    {formatDateString(record.date_of_last_dose)}
                                                 </td>
                                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                                                     {record.pills_per_day || '-'}
@@ -964,7 +968,7 @@ const SubjectAccountabilityPage: React.FC = () => {
                                                     })()}
                                                 </td>
                                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    {record.return_date ? new Date(record.return_date).toLocaleDateString() : '-'}
+                                                    {formatDateString(record.return_date)}
                                                 </td>
                                                 <td className="px-4 py-4 whitespace-nowrap text-sm">
                                                     {isReturned || hasReturn ? (
@@ -1105,7 +1109,7 @@ const SubjectAccountabilityPage: React.FC = () => {
                                     </div>
                                     <div>
                                         <span className="text-gray-500">Dispense Date:</span>
-                                        <span className="ml-2 font-medium">{selectedRecord.created_at ? new Date(selectedRecord.created_at).toLocaleDateString() : '-'}</span>
+                                        <span className="ml-2 font-medium">{formatDateString(selectedRecord.created_at)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1148,7 +1152,10 @@ const SubjectAccountabilityPage: React.FC = () => {
                                 <input
                                     type="number"
                                     value={returnQty}
-                                    onChange={(e) => setReturnQty(parseInt(e.target.value) || 0)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setReturnQty(val === '' ? 0 : parseInt(val));
+                                    }}
                                     min={0}
                                     max={selectedRecord.qty_dispensed}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1171,7 +1178,7 @@ const SubjectAccountabilityPage: React.FC = () => {
                                         {selectedRecord?.date_of_first_dose ? (
                                             // Read-only display when captured at dispense
                                             <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm">
-                                                {new Date(selectedRecord.date_of_first_dose).toLocaleDateString()}
+                                                {formatDateString(selectedRecord.date_of_first_dose)}
                                             </div>
                                         ) : (
                                             // Editable for legacy records

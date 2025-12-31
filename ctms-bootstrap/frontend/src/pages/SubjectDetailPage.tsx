@@ -46,7 +46,11 @@ const SubjectDetailPage: React.FC = () => {
         <div className="p-6">
             {/* Page Header */}
             <div className="mb-6 flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">{subject.subject_number} | {subject.status}</h1>
+                <h1 className="text-2xl font-bold text-gray-900">
+                    {subject.subject_number} | {subject.status === 'Early Terminated' || subject.status === 'Terminated' ? (
+                        <span className="text-red-600">Early Terminated</span>
+                    ) : subject.status}
+                </h1>
                 <div className="flex items-center space-x-4">
                     <button
                         onClick={() => navigate(`/drug/subject-accountability?site=${subject.site_id}&subject=${id}`)}
@@ -126,42 +130,57 @@ const SubjectDetailPage: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {subject.subject_visits.map((visit: any) => (
-                                        <tr key={visit.subject_visit_id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                {visit.visits?.visit_name || 'N/A'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {visit.expected_date
-                                                    ? new Date(visit.expected_date).toLocaleDateString()
-                                                    : <span className="text-gray-400">-</span>
-                                                }
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {visit.actual_date
-                                                    ? new Date(visit.actual_date).toLocaleDateString()
-                                                    : <span className="text-gray-400">-</span>
-                                                }
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {getDrugsForVisit(visit.subject_visit_id) !== '-' ? (
-                                                    <span className="text-blue-600 font-medium">
-                                                        {getDrugsForVisit(visit.subject_visit_id)}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-gray-400">-</span>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                <button
-                                                    onClick={() => navigate(`/drug/dispense?subject=${id}&visit=${visit.subject_visit_id}`)}
-                                                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                                                >
-                                                    Dispense Drug
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {[...subject.subject_visits]
+                                        .sort((a: any, b: any) => {
+                                            // Early Termination always goes last
+                                            const aIsTermination = a.visits?.visit_name?.toLowerCase().includes('termination');
+                                            const bIsTermination = b.visits?.visit_name?.toLowerCase().includes('termination');
+                                            if (aIsTermination && !bIsTermination) return 1;
+                                            if (!aIsTermination && bIsTermination) return -1;
+                                            // Otherwise sort by visit_sequence
+                                            return (a.visits?.visit_sequence || 0) - (b.visits?.visit_sequence || 0);
+                                        })
+                                        .map((visit: any) => (
+                                            <tr key={visit.subject_visit_id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                    {visit.visits?.visit_name || 'N/A'}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {visit.expected_date
+                                                        ? new Date(visit.expected_date).toLocaleDateString()
+                                                        : <span className="text-gray-400">-</span>
+                                                    }
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {visit.actual_date
+                                                        ? new Date(visit.actual_date).toLocaleDateString()
+                                                        : <span className="text-gray-400">-</span>
+                                                    }
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {getDrugsForVisit(visit.subject_visit_id) !== '-' ? (
+                                                        <span className="text-blue-600 font-medium">
+                                                            {getDrugsForVisit(visit.subject_visit_id)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-400">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    {visit.visits?.visit_name?.toLowerCase().includes('termination') ||
+                                                        visit.visits?.visit_name?.toLowerCase().includes('early termination') ? (
+                                                        <span className="text-gray-400 text-xs">-</span>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => navigate(`/drug/dispense?subject=${id}&visit=${visit.subject_visit_id}`)}
+                                                            className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                                                        >
+                                                            Dispense Drug
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
                                 </tbody>
                             </table>
                         </div>

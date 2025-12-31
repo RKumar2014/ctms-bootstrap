@@ -23,6 +23,13 @@ router.get('/master-log', authenticateToken, async (req, res) => {
                     reconciliation_date,
                     comments,
                     created_at,
+                    date_of_first_dose,
+                    date_of_last_dose,
+                    pills_per_day,
+                    days_used,
+                    expected_pills,
+                    pills_used,
+                    compliance_percentage,
                     subject_visit:subject_visits(
                         subject_visit_id,
                         visit_id,
@@ -40,14 +47,9 @@ router.get('/master-log', authenticateToken, async (req, res) => {
         if (error) throw error;
 
         // Transform to flat structure for table display
+        // Use STORED VALUES from accountability - no recalculation needed!
         const flattenedData = data?.map((unit: any) => {
             const accountability = unit.accountability?.[0];
-            const qtyDispensed = accountability?.qty_dispensed || 0;
-            const qtyReturned = accountability?.qty_returned || 0;
-            const pillsUsed = qtyDispensed - qtyReturned;
-            const compliance = qtyDispensed > 0 && qtyReturned > 0 
-                ? Math.round((pillsUsed / qtyDispensed) * 100) 
-                : null;
 
             return {
                 drugUnitId: unit.drug_unit_id,
@@ -62,12 +64,14 @@ router.get('/master-log', authenticateToken, async (req, res) => {
                 // Subject info (from drug_unit or accountability)
                 subjectId: unit.subject?.subject_id,
                 subjectNumber: unit.subject?.subject_number,
-                // From accountability (if dispensed)
+                // From accountability (STORED VALUES - not recalculated)
                 accountabilityId: accountability?.accountability_id,
-                qtyDispensed: qtyDispensed,
-                qtyReturned: qtyReturned,
-                pillsUsed: qtyReturned > 0 ? pillsUsed : null,
-                compliance: compliance,
+                qtyDispensed: accountability?.qty_dispensed || 0,
+                qtyReturned: accountability?.qty_returned || 0,
+                pillsUsed: accountability?.pills_used,
+                compliance: accountability?.compliance_percentage,
+                daysUsed: accountability?.days_used,
+                expectedPills: accountability?.expected_pills,
                 returnDate: accountability?.return_date,
                 reconciliationDate: accountability?.reconciliation_date,
                 dispenseDate: accountability?.created_at,

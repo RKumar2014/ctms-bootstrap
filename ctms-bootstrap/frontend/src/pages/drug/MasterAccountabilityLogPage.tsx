@@ -4,6 +4,15 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { sitesApi, inventoryApi } from '../../lib/api';
 
+// Helper function to format date strings without timezone shift
+const formatDateString = (dateString: string | null | undefined): string => {
+    if (!dateString) return '-';
+    const datePart = dateString.split('T')[0];
+    const [year, month, day] = datePart.split('-');
+    if (!year || !month || !day) return '-';
+    return `${parseInt(month)}/${parseInt(day)}/${year}`;
+};
+
 interface MasterLogRecord {
     drugUnitId: number;
     drugCode: string;
@@ -58,7 +67,7 @@ const MasterAccountabilityLogPage: React.FC = () => {
     // Group data by drug code
     const groupedData = useMemo(() => {
         const groups: Record<string, { drugCode: string; records: MasterLogRecord[] }> = {};
-        
+
         masterLogData.forEach((record: MasterLogRecord) => {
             const key = record.drugCode || 'Unknown';
             if (!groups[key]) {
@@ -115,8 +124,8 @@ const MasterAccountabilityLogPage: React.FC = () => {
             record.qtyReturned,
             record.pillsUsed ?? '',
             record.compliance !== null ? `${record.compliance}%` : '',
-            record.dispenseDate ? new Date(record.dispenseDate).toLocaleDateString() : '',
-            record.returnDate ? new Date(record.returnDate).toLocaleDateString() : '',
+            formatDateString(record.dispenseDate),
+            formatDateString(record.returnDate),
             record.comments || ''
         ]);
 
@@ -309,7 +318,7 @@ const MasterAccountabilityLogPage: React.FC = () => {
                                                                 {record.lotNumber || '-'}
                                                             </td>
                                                             <td className="px-4 py-3 text-sm text-gray-500">
-                                                                {record.expirationDate ? new Date(record.expirationDate).toLocaleDateString() : '-'}
+                                                                {formatDateString(record.expirationDate)}
                                                             </td>
                                                             <td className="px-4 py-3 text-sm">
                                                                 <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(record.status)}`}>
@@ -337,17 +346,16 @@ const MasterAccountabilityLogPage: React.FC = () => {
                                                             </td>
                                                             <td className="px-4 py-3 text-sm">
                                                                 {record.compliance !== null ? (
-                                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                                        record.compliance >= 80 ? 'bg-green-100 text-green-800' :
+                                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${record.compliance >= 80 ? 'bg-green-100 text-green-800' :
                                                                         record.compliance >= 50 ? 'bg-yellow-100 text-yellow-800' :
-                                                                        'bg-red-100 text-red-800'
-                                                                    }`}>
+                                                                            'bg-red-100 text-red-800'
+                                                                        }`}>
                                                                         {record.compliance}%
                                                                     </span>
                                                                 ) : '-'}
                                                             </td>
                                                             <td className="px-4 py-3 text-sm text-gray-500">
-                                                                {record.returnDate ? new Date(record.returnDate).toLocaleDateString() : '-'}
+                                                                {formatDateString(record.returnDate)}
                                                             </td>
                                                             <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title={record.comments || ''}>
                                                                 {record.comments || '-'}

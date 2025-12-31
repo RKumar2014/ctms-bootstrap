@@ -51,46 +51,64 @@ const DispenseDrugPage: React.FC = () => {
     });
 
     // Fetch previous visit's accountability to validate first dose date
+    // Gets all accountability records for this subject and finds the most recent returned one
     const { data: previousVisitData } = useQuery({
-        queryKey: ['previous-visit-accountability', subjectId, visitDetails?.visit?.visit_sequence],
+        queryKey: ['previous-visit-accountability', subjectId],
         queryFn: async () => {
             // Get all accountability records for this subject
             const response = await accountabilityApi.list({ subject_id: subjectId });
             const records = response.data || [];
-            
-            // Get the current visit's sequence
-            const currentSequence = visitDetails?.visit?.visit_sequence || 0;
-            
-            // Find the previous visit's accountability record (one sequence lower)
-            const previousRecord = records.find((r: any) => {
-                const recordVisitSequence = r.visit?.visit?.visit_sequence || r.visit?.visit_sequence || 0;
-                return recordVisitSequence === currentSequence - 1;
-            });
-            
-            return previousRecord;
+
+            console.log('DEBUG: All accountability records for subject:', records);
+
+            // Find records that have been returned (have date_of_last_dose)
+            const returnedRecords = records.filter((r: any) => r.date_of_last_dose);
+
+            console.log('DEBUG: Returned records:', returnedRecords);
+
+            // Return the most recent returned record (by last dose date)
+            if (returnedRecords.length > 0) {
+                const sorted = returnedRecords.sort((a: any, b: any) =>
+                    new Date(b.date_of_last_dose).getTime() - new Date(a.date_of_last_dose).getTime()
+                );
+                console.log('DEBUG: Most recent returned record:', sorted[0]);
+                return sorted[0];
+            }
+
+            // Also check if there's a dispensed (not returned) record that would block
+            const dispensedRecords = records.filter((r: any) =>
+                r.drug_unit?.status === 'Dispensed' && !r.date_of_last_dose
+            );
+            console.log('DEBUG: Dispensed (not returned) records:', dispensedRecords);
+
+            if (dispensedRecords.length > 0) {
+                return dispensedRecords[0]; // Return to trigger "must return first" error
+            }
+
+            return null;
         },
-        enabled: !!subjectId && !!visitDetails?.visit?.visit_sequence && visitDetails.visit.visit_sequence > 1,
+        enabled: !!subjectId,
     });
 
     // Validate first dose date against previous visit's last dose
     const getFirstDoseWarning = (): string | null => {
         if (!previousVisitData) return null;
-        
+
         const prevLastDose = previousVisitData.date_of_last_dose;
         if (!prevLastDose) {
             return `Warning: Previous visit's drug has not been returned yet. First Dose Date may need adjustment.`;
         }
-        
+
         const prevLastDoseDate = new Date(prevLastDose);
         const firstDoseDateObj = new Date(firstDoseDate);
-        
+
         if (firstDoseDateObj < prevLastDoseDate) {
             return `Warning: First Dose Date (${firstDoseDate}) is before previous visit's Last Dose Date (${prevLastDose}). This may indicate an overlap.`;
         }
-        
+
         return null;
     };
-    
+
     const firstDoseWarning = getFirstDoseWarning();
 
     // Dispense mutation
@@ -162,6 +180,62 @@ const DispenseDrugPage: React.FC = () => {
             setErrorMessage('Quantity must be greater than 0');
             return;
         }
+
+        // CRITICAL VALIDATION 1: Block dispensing if previous visit drugs not returned
+        if (previousVisitData) {
+            const previousDrugStatus = previousVisitData.drug_unit?.status;
+            const previousQtyReturned = previousVisitData.qty_returned;
+
+            // Check if previous visit's drug is still dispensed (not returned)
+            if (previousDrugStatus === 'Dispensed' || previousQtyReturned === null || previousQtyReturned === 0) {
+                const previousVisitName = previousVisitData.subject_visit?.visit_details?.visit_name ||
+                    previousVisitData.visit?.visit_name ||
+                    'Previous visit';
+                setErrorMessage(
+                    `Cannot dispense for this visit. ${previousVisitName} drugs have not been returned yet. ` +
+                    `Please record the return for ${previousVisitName} before dispensing for this visit.`
+                );
+                return;
+            }
+
+            // CRITICAL VALIDATION 2: Block medication overlap - First Dose must be AFTER previous visit Last Dose
+            const previousLastDose = previousVisitData.date_of_last_dose;
+            if (previousLastDose) {
+                // Parse dates and normalize to UTC noon for consistent comparison
+                const parseDateToUTCNoon = (dateStr: string): Date => {
+                    const date = new Date(dateStr);
+                    return new Date(Date.UTC(
+                        date.getFullYear(),
+                        date.getMonth(),
+                        date.getDate(),
+                        12, 0, 0
+                    ));
+                };
+
+                const previousLastDoseDate = parseDateToUTCNoon(previousLastDose);
+                const currentFirstDoseDate = parseDateToUTCNoon(firstDoseDate);
+
+                // Block if current First Dose is on or before previous Last Dose
+                if (currentFirstDoseDate <= previousLastDoseDate) {
+                    const previousVisitName = previousVisitData.subject_visit?.visit_details?.visit_name ||
+                        previousVisitData.visit?.visit_name ||
+                        'Previous visit';
+                    const prevLastFormatted = new Date(previousLastDose).toLocaleDateString();
+
+                    // Calculate suggested next day
+                    const nextDayTimestamp = previousLastDoseDate.getTime() + 86400000; // +1 day in ms
+                    const suggestedDate = new Date(nextDayTimestamp).toLocaleDateString();
+
+                    setErrorMessage(
+                        `⚠️ Medication overlap detected! First Dose for this visit (${firstDoseDate}) ` +
+                        `must be AFTER ${previousVisitName}'s Last Dose (${prevLastFormatted}). ` +
+                        `Please adjust the First Dose Date to ${suggestedDate} or later to avoid overlap.`
+                    );
+                    return;
+                }
+            }
+        }
+
         dispenseMutation.mutate({});
     };
 
@@ -306,7 +380,7 @@ const DispenseDrugPage: React.FC = () => {
                             <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                                 <p className="text-sm text-blue-800">
                                     <strong>Expected Duration:</strong>{' '}
-                                    {Math.floor(qtyDispensed / pillsPerDay)} days 
+                                    {Math.floor(qtyDispensed / pillsPerDay)} days
                                     ({qtyDispensed} pills ÷ {pillsPerDay} pills/day)
                                 </p>
                             </div>
