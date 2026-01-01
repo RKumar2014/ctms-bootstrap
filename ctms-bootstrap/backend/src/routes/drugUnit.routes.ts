@@ -1,16 +1,27 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase.js';
-import { authenticateToken } from '../middleware/auth.middleware.js';
+import { authenticateToken, AuthRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-// Get all drug units
-router.get('/', authenticateToken, async (req, res) => {
+// Get all drug units (filtered by site for non-admin users)
+router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     try {
-        const { data, error } = await supabase
+        // Get user's site and role from JWT for HIPAA filtering
+        const userSiteId = req.user?.siteId;
+        const isAdmin = req.user?.role === 'admin';
+
+        let query = supabase
             .from('drug_units')
             .select('*')
             .order('drug_unit_id');
+
+        // HIPAA: Non-admin users can only see drug units from their assigned site
+        if (!isAdmin && userSiteId) {
+            query = query.eq('site_id', userSiteId);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
 

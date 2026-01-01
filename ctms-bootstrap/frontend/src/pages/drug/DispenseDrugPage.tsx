@@ -3,6 +3,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { subjectsApi, drugUnitsApi, accountabilityApi, api } from '../../lib/api';
 
+// Helper function to format date strings as MM/DD/YYYY without timezone shift
+const formatDateToMMDDYYYY = (dateString: string | null | undefined): string => {
+    if (!dateString) return '-';
+    // Extract just the date part (YYYY-MM-DD) to avoid timezone issues
+    const datePart = dateString.split('T')[0];
+    const [year, month, day] = datePart.split('-');
+    if (!year || !month || !day) return '-';
+    // Return with leading zeros: MM/DD/YYYY
+    return `${month.padStart(2, '0')}/${day.padStart(2, '0')}/${year}`;
+};
+
 const DispenseDrugPage: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -56,7 +67,7 @@ const DispenseDrugPage: React.FC = () => {
         queryKey: ['previous-visit-accountability', subjectId],
         queryFn: async () => {
             // Get all accountability records for this subject
-            const response = await accountabilityApi.list({ subject_id: subjectId });
+            const response = await accountabilityApi.list({ subject_id: subjectId ?? undefined });
             const records = response.data || [];
 
             console.log('DEBUG: All accountability records for subject:', records);
@@ -103,7 +114,7 @@ const DispenseDrugPage: React.FC = () => {
         const firstDoseDateObj = new Date(firstDoseDate);
 
         if (firstDoseDateObj < prevLastDoseDate) {
-            return `Warning: First Dose Date (${firstDoseDate}) is before previous visit's Last Dose Date (${prevLastDose}). This may indicate an overlap.`;
+            return `Warning: First Dose Date (${formatDateToMMDDYYYY(firstDoseDate)}) is before previous visit's Last Dose Date (${formatDateToMMDDYYYY(prevLastDose)}). This may indicate an overlap.`;
         }
 
         return null;
@@ -137,14 +148,15 @@ const DispenseDrugPage: React.FC = () => {
             return accResponse;
         },
         onSuccess: () => {
-            setSuccessMessage('Drug dispensed successfully!');
+            setSuccessMessage('Drug dispensed successfully! Redirecting...');
             setErrorMessage('');
             queryClient.invalidateQueries({ queryKey: ['subject-accountability'] });
             queryClient.invalidateQueries({ queryKey: ['available-drug-units'] });
-            setSelectedDrugUnit('');
-            setFirstDoseDate(new Date().toISOString().split('T')[0]); // Reset to today
-            setPillsPerDay(1);
-            setComments('');
+
+            // Redirect to subject detail page after brief delay to show success message
+            setTimeout(() => {
+                navigate(`/subjects/${subjectId}`);
+            }, 1500);
         },
         onError: (error: any) => {
             setErrorMessage(error.response?.data?.error || 'Failed to dispense drug');
@@ -202,14 +214,21 @@ const DispenseDrugPage: React.FC = () => {
             const previousLastDose = previousVisitData.date_of_last_dose;
             if (previousLastDose) {
                 // Parse dates and normalize to UTC noon for consistent comparison
+                // FIXED: Parse string components directly to avoid timezone conversion
                 const parseDateToUTCNoon = (dateStr: string): Date => {
-                    const date = new Date(dateStr);
-                    return new Date(Date.UTC(
-                        date.getFullYear(),
-                        date.getMonth(),
-                        date.getDate(),
-                        12, 0, 0
-                    ));
+                    // Extract just the date part (YYYY-MM-DD) if ISO timestamp
+                    let cleanDate = dateStr;
+                    if (dateStr.includes('T')) {
+                        cleanDate = dateStr.split('T')[0];
+                    }
+
+                    // Parse string components directly - NO timezone conversion
+                    const [yearStr, monthStr, dayStr] = cleanDate.split('-');
+                    const year = parseInt(yearStr, 10);
+                    const month = parseInt(monthStr, 10) - 1; // JS months are 0-indexed
+                    const day = parseInt(dayStr, 10);
+
+                    return new Date(Date.UTC(year, month, day, 12, 0, 0));
                 };
 
                 const previousLastDoseDate = parseDateToUTCNoon(previousLastDose);
@@ -220,14 +239,16 @@ const DispenseDrugPage: React.FC = () => {
                     const previousVisitName = previousVisitData.subject_visit?.visit_details?.visit_name ||
                         previousVisitData.visit?.visit_name ||
                         'Previous visit';
-                    const prevLastFormatted = new Date(previousLastDose).toLocaleDateString();
+                    // Format dates consistently as MM/DD/YYYY
+                    const prevLastFormatted = formatDateToMMDDYYYY(previousLastDose);
 
-                    // Calculate suggested next day
+                    // Calculate suggested next day and format it
                     const nextDayTimestamp = previousLastDoseDate.getTime() + 86400000; // +1 day in ms
-                    const suggestedDate = new Date(nextDayTimestamp).toLocaleDateString();
+                    const nextDayDate = new Date(nextDayTimestamp);
+                    const suggestedDate = `${String(nextDayDate.getUTCMonth() + 1).padStart(2, '0')}/${String(nextDayDate.getUTCDate()).padStart(2, '0')}/${nextDayDate.getUTCFullYear()}`;
 
                     setErrorMessage(
-                        `⚠️ Medication overlap detected! First Dose for this visit (${firstDoseDate}) ` +
+                        `⚠️ Medication overlap detected! First Dose for this visit (${formatDateToMMDDYYYY(firstDoseDate)}) ` +
                         `must be AFTER ${previousVisitName}'s Last Dose (${prevLastFormatted}). ` +
                         `Please adjust the First Dose Date to ${suggestedDate} or later to avoid overlap.`
                     );
@@ -244,12 +265,20 @@ const DispenseDrugPage: React.FC = () => {
             {/* Page Header */}
             <div className="mb-6 flex justify-between items-center">
                 <h1 className="text-2xl font-bold text-gray-900">Dispense Drug</h1>
-                <button
-                    onClick={() => navigate(-1)}
-                    className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-md"
-                >
-                    ← Back
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => navigate(`/drug/subject-accountability?subject=${subjectId}`)}
+                        className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50"
+                    >
+                        📋 Subject Accountability
+                    </button>
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-md"
+                    >
+                        ← Back
+                    </button>
+                </div>
             </div>
 
             {/* Content */}

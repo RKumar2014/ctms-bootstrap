@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Package, FileText } from 'lucide-react';
+import { subjectsApi, drugUnitsApi } from '../lib/api';
 
 interface DashboardStats {
     activeSubjects: number;
@@ -21,22 +22,16 @@ const OverviewDashboardPage: React.FC = () => {
 
     const fetchDashboardStats = async () => {
         try {
-            const token = localStorage.getItem('token');
-
-            // Fetch subjects count
-            const subjectsRes = await fetch('http://localhost:8080/api/subjects', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const subjects = await subjectsRes.json();
+            // Fetch subjects count using centralized API
+            const subjectsRes = await subjectsApi.list();
+            const subjects = subjectsRes.data;
             const activeSubjects = Array.isArray(subjects)
                 ? subjects.filter((s: any) => s.status === 'Active' || s.status === 'Enrolled').length
                 : 0;
 
-            // Fetch inventory stats
-            const inventoryRes = await fetch('http://localhost:8080/api/drug-units', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const inventory = await inventoryRes.json();
+            // Fetch drug units using centralized API
+            const inventoryRes = await drugUnitsApi.list();
+            const inventory = inventoryRes.data;
 
             const availableDrugUnits = Array.isArray(inventory)
                 ? inventory.filter((i: any) => i.status === 'Available').length

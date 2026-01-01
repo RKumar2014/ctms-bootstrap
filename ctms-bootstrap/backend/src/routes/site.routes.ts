@@ -1,16 +1,27 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase.js';
-import { authenticateToken } from '../middleware/auth.middleware.js';
+import { authenticateToken, AuthRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-// Get all sites
-router.get('/', authenticateToken, async (req, res) => {
+// Get sites (filtered by user's assigned site for non-admin users)
+router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     try {
-        const { data, error } = await supabase
+        // Get user's site and role from JWT for HIPAA filtering
+        const userSiteId = req.user?.siteId;
+        const isAdmin = req.user?.role === 'admin';
+
+        let query = supabase
             .from('sites')
             .select('*')
             .order('site_number');
+
+        // HIPAA: Non-admin users can only see their assigned site
+        if (!isAdmin && userSiteId) {
+            query = query.eq('site_id', userSiteId);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
 
@@ -22,3 +33,4 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 export default router;
+

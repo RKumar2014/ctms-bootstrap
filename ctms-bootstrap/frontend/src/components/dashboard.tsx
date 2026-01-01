@@ -1,6 +1,7 @@
 // frontend/src/components/Dashboard.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
 
 interface User {
   id: string;
@@ -25,22 +26,13 @@ const Dashboard: React.FC = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:3000/api/user/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch user data');
-      }
-
-      const data: User = await response.json();
-      setUser(data);
+      // FIXED: Use api service instead of hardcoded localhost
+      const response = await api.get('/user/profile');
+      setUser(response.data);
     } catch (error) {
       console.error('Error fetching user data:', error);
-      localStorage.removeItem('token');
-      navigate('/login');
+      // Don't logout on error - the api interceptor handles 401 already
+      // Just show empty state instead
     } finally {
       setLoading(false);
     }

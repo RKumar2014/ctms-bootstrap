@@ -70,9 +70,9 @@ export const accountabilityApi = {
     create: (data: any) => api.post('/accountability', data),
     bulkSubmit: (records: any[]) => api.post('/accountability/bulk-submit', { records }),
     // Record return with enhanced compliance calculation
-    recordReturn: (id: string, data: { 
-        qty_returned: number; 
-        return_date?: string; 
+    recordReturn: (id: string, data: {
+        qty_returned: number;
+        return_date?: string;
         date_of_first_dose?: string;
         date_of_last_dose?: string;
         pills_per_day?: number;
@@ -85,6 +85,7 @@ export const accountabilityApi = {
         date_of_last_dose?: string;
         pills_per_day?: number;
         comments?: string;
+        reason_for_change?: string;
     }) => api.put(`/accountability/${id}`, data),
 };
 
@@ -99,4 +100,48 @@ export const reportsApi = {
     subjectSummary: () => api.get('/reports/subject-summary'),
     siteEnrollment: () => api.get('/reports/site-enrollment'),
     drugAccountability: () => api.get('/reports/drug-accountability'),
+};
+
+// Audit Trail API
+export const auditApi = {
+    list: (params?: {
+        user_id?: string;
+        action?: string;
+        table_name?: string;
+        record_id?: string;
+        start_date?: string;
+        end_date?: string;
+        limit?: number;
+        offset?: number;
+    }) => api.get('/audit', { params }),
+    get: (id: string) => api.get(`/audit/${id}`),
+    exportCsv: (params?: {
+        user_id?: string;
+        action?: string;
+        table_name?: string;
+        start_date?: string;
+        end_date?: string;
+    }) => api.get('/audit/export/csv', { params, responseType: 'blob' }),
+    getFilterOptions: () => api.get('/audit/filters/options'),
+};
+
+// User Management API (Admin)
+export const userApi = {
+    list: () => api.get('/user/list'),
+    create: (data: {
+        username: string;
+        password: string;
+        email: string;
+        role: string;
+        site_id?: number;
+    }) => api.post('/user', data),
+    update: (id: string, data: {
+        email?: string;
+        role?: string;
+        site_id?: number;
+        is_active?: boolean;
+        password?: string;
+    }) => api.put(`/user/${id}`, data),
+    delete: (id: string) => api.delete(`/user/${id}`),
+    getRoles: () => api.get('/user/roles'),
 };

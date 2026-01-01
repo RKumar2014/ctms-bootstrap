@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase.js';
 import { authenticateToken } from '../middleware/auth.middleware.js';
+import { logAudit } from '../services/auditService.js';
 
 const router = Router();
 
@@ -48,15 +49,15 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Create or update accountability record
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, async (req: any, res) => {
     try {
-        const { 
-            subject_id, 
-            visit_id, 
-            drug_unit_id, 
-            qty_dispensed, 
-            qty_returned, 
-            reconciliation_date, 
+        const {
+            subject_id,
+            visit_id,
+            drug_unit_id,
+            qty_dispensed,
+            qty_returned,
+            reconciliation_date,
             comments,
             date_of_first_dose,  // Captured at dispense time
             pills_per_day        // Captured at dispense time (from protocol)
@@ -72,7 +73,13 @@ router.post('/', authenticateToken, async (req, res) => {
             .single();
 
         let result;
+        let action: 'CREATE' | 'UPDATE' = 'CREATE';
+        let oldValues = null;
+
         if (existing) {
+            action = 'UPDATE';
+            oldValues = { ...existing };
+
             // Update existing record
             const { data, error } = await supabase
                 .from('accountability')
@@ -111,12 +118,32 @@ router.post('/', authenticateToken, async (req, res) => {
             result = data[0];
         }
 
+        // Log audit trail for DISPENSE action
+        await logAudit({
+            user_id: req.user?.userId,
+            username: req.user?.username,
+            action: action === 'CREATE' ? 'DISPENSE' : 'UPDATE',
+            table_name: 'accountability',
+            record_id: result.accountability_id.toString(),
+            old_values: oldValues,
+            new_values: {
+                subject_id,
+                visit_id,
+                drug_unit_id,
+                qty_dispensed,
+                date_of_first_dose: result.date_of_first_dose,
+                pills_per_day: result.pills_per_day,
+                comments
+            }
+        });
+
         res.json(result);
     } catch (error: any) {
         console.error('Error creating/updating accountability:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Bulk submit accountability records
 router.post('/bulk-submit', authenticateToken, async (req, res) => {
@@ -188,10 +215,17 @@ router.post('/bulk-submit', authenticateToken, async (req, res) => {
 });
 
 // Update accountability record (for comments, dates, pills_per_day)
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, async (req: any, res) => {
     try {
         const { id } = req.params;
-        const { comments, date_of_first_dose, date_of_last_dose, pills_per_day } = req.body;
+        const { comments, date_of_first_dose, date_of_last_dose, pills_per_day, reason_for_change } = req.body;
+
+        // Get existing record for audit trail
+        const { data: existingRecord } = await supabase
+            .from('accountability')
+            .select('*')
+            .eq('accountability_id', id)
+            .single();
 
         // Build update object with only provided fields
         const updateData: any = {
@@ -221,10 +255,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
                     const lastDose = new Date(effectiveLastDose);
                     const timeDiff = lastDose.getTime() - firstDose.getTime();
                     const days_used = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
-                    const expected_pills = days_used * effectivePillsPerDay;
+                    const theoreticalExpected = days_used * effectivePillsPerDay;
+
+                    // CRITICAL: Cap expected at qty_dispensed - can't expect more pills than were given!
+                    const expected_pills = Math.min(theoreticalExpected, existing.qty_dispensed);
+
                     const pills_used = existing.qty_dispensed - existing.qty_returned;
-                    const compliance_percentage = expected_pills > 0 
-                        ? Math.round((pills_used / expected_pills) * 10000) / 100 
+                    const compliance_percentage = expected_pills > 0
+                        ? Math.round((pills_used / expected_pills) * 10000) / 100
                         : null;
 
                     updateData.days_used = days_used;
@@ -247,6 +285,28 @@ router.put('/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Accountability record not found' });
         }
 
+        // Log audit trail for UPDATE action
+        await logAudit({
+            user_id: req.user?.userId,
+            username: req.user?.username,
+            action: 'UPDATE',
+            table_name: 'accountability',
+            record_id: id,
+            old_values: existingRecord ? {
+                comments: existingRecord.comments,
+                date_of_first_dose: existingRecord.date_of_first_dose,
+                date_of_last_dose: existingRecord.date_of_last_dose,
+                pills_per_day: existingRecord.pills_per_day
+            } : undefined,
+            new_values: {
+                comments,
+                date_of_first_dose,
+                date_of_last_dose,
+                pills_per_day
+            },
+            reason_for_change: reason_for_change || 'Data correction'
+        });
+
         res.json(data[0]);
     } catch (error: any) {
         console.error('Error updating accountability:', error);
@@ -255,23 +315,23 @@ router.put('/:id', authenticateToken, async (req, res) => {
 });
 
 // Record return for existing accountability record with enhanced compliance calculation
-router.put('/:id/return', authenticateToken, async (req, res) => {
+router.put('/:id/return', authenticateToken, async (req: any, res) => {
     try {
         const { id } = req.params;
-        const { 
-            qty_returned, 
-            return_date, 
+        const {
+            qty_returned,
+            return_date,
             date_of_first_dose,
             date_of_last_dose,
             pills_per_day,
             return_status,  // RETURNED, NOT_RETURNED, WASTED, LOST, DESTROYED
-            comments 
+            comments
         } = req.body;
 
-        // Validate qty_returned doesn't exceed qty_dispensed
+        // Validate qty_returned doesn't exceed qty_dispensed and get existing data
         const { data: existing, error: fetchError } = await supabase
             .from('accountability')
-            .select('qty_dispensed, drug_unit_id')
+            .select('*')
             .eq('accountability_id', id)
             .single();
 
@@ -280,8 +340,8 @@ router.put('/:id/return', authenticateToken, async (req, res) => {
         }
 
         if (qty_returned > existing.qty_dispensed) {
-            return res.status(400).json({ 
-                error: `Cannot return more than dispensed (${existing.qty_dispensed})` 
+            return res.status(400).json({
+                error: `Cannot return more than dispensed (${existing.qty_dispensed})`
             });
         }
 
@@ -300,10 +360,13 @@ router.put('/:id/return', authenticateToken, async (req, res) => {
             const lastDose = new Date(date_of_last_dose);
             const timeDiff = lastDose.getTime() - firstDose.getTime();
             days_used = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1; // +1 to include both days
-            
+
             // Calculate expected pills
             const pillsPerDayValue = pills_per_day || 1;
-            expected_pills = days_used * pillsPerDayValue;
+            const theoreticalExpected = days_used * pillsPerDayValue;
+
+            // CRITICAL: Cap expected at qty_dispensed - can't expect more pills than were given!
+            expected_pills = Math.min(theoreticalExpected, existing.qty_dispensed);
 
             // Calculate compliance percentage
             // Compliance = (Pills Used / Expected Pills) × 100
@@ -345,6 +408,32 @@ router.put('/:id/return', authenticateToken, async (req, res) => {
                 })
                 .eq('drug_unit_id', existing.drug_unit_id);
         }
+
+        // Log audit trail for RETURN action
+        await logAudit({
+            user_id: req.user?.userId,
+            username: req.user?.username,
+            action: 'RETURN',
+            table_name: 'accountability',
+            record_id: id,
+            old_values: {
+                qty_returned: existing.qty_returned,
+                return_date: existing.return_date,
+                date_of_last_dose: existing.date_of_last_dose,
+                compliance_percentage: existing.compliance_percentage
+            },
+            new_values: {
+                qty_returned,
+                return_date: return_date || new Date().toISOString(),
+                date_of_first_dose,
+                date_of_last_dose,
+                pills_per_day,
+                pills_used,
+                compliance_percentage,
+                comments
+            },
+            reason_for_change: comments || 'Medication return processed' // Use comments as reason
+        });
 
         res.json(data[0]);
     } catch (error: any) {

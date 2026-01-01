@@ -45,6 +45,9 @@ const SubjectAccountabilityPage: React.FC = () => {
     // Inline comment editing
     const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
     const [editingCommentText, setEditingCommentText] = useState('');
+    // Pill counter state
+    const [isPillCounting, setIsPillCounting] = useState(false);
+    const [pillCountError, setPillCountError] = useState('');
 
     // Edit record modal state (for fixing missing dates)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -52,6 +55,8 @@ const SubjectAccountabilityPage: React.FC = () => {
     const [editFirstDose, setEditFirstDose] = useState('');
     const [editLastDose, setEditLastDose] = useState('');
     const [editPillsPerDay, setEditPillsPerDay] = useState(1);
+    const [editReason, setEditReason] = useState('');
+
 
     // Auto-validate dates when they change (fixes React closure issue)
     useEffect(() => {
@@ -310,6 +315,67 @@ const SubjectAccountabilityPage: React.FC = () => {
         return warnings;
     };
 
+    // Pill Counter - Convert file to base64
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
+    };
+
+
+    // Pill Counter - Handle image upload and count pills
+    const handlePillCount = async (file: File) => {
+        setIsPillCounting(true);
+        setPillCountError('');
+
+        try {
+            // Convert image to base64
+            const base64 = await fileToBase64(file);
+
+            // Remove data:image/...;base64, prefix if present
+            const base64Image = base64.split(',')[1] || base64;
+
+            // Call NEW Roboflow model (pill-detection-ognln/8)
+            const response = await fetch('https://serverless.roboflow.com/pill-detection-ognln/8?api_key=us5nPRXtK3HK3V4fF1DC', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: base64Image
+            });
+
+            const data = await response.json();
+            console.log('Pill Counter API Response:', data);
+
+            // Extract count from response - new model returns predictions array
+            let count = 0;
+            if (data?.predictions && Array.isArray(data.predictions)) {
+                count = data.predictions.length;
+            } else if (data?.outputs?.count_objects !== undefined) {
+                count = data.outputs.count_objects;
+            } else if (Array.isArray(data)) {
+                count = data.length;
+            }
+
+            // Validate count against max allowed
+            const maxQty = selectedRecord?.qty_dispensed || 0;
+            if (count > maxQty) {
+                setPillCountError(`Detected ${count} pills, but max is ${maxQty}. Please verify manually.`);
+                setReturnQty(maxQty);
+            } else {
+                setReturnQty(count);
+            }
+        } catch (error) {
+            console.error('Pill counting error:', error);
+            setPillCountError('Failed to count pills. Please enter manually.');
+        } finally {
+            setIsPillCounting(false);
+        }
+    };
+
     // Bulk submit mutation
     const submitMutation = useMutation({
         mutationFn: async (records: any[]) => {
@@ -391,11 +457,13 @@ const SubjectAccountabilityPage: React.FC = () => {
             date_of_first_dose?: string;
             date_of_last_dose?: string;
             pills_per_day?: number;
+            reason?: string;
         }) => {
             return await accountabilityApi.update(data.id, {
                 date_of_first_dose: data.date_of_first_dose,
                 date_of_last_dose: data.date_of_last_dose,
-                pills_per_day: data.pills_per_day
+                pills_per_day: data.pills_per_day,
+                reason_for_change: data.reason
             });
         },
         onSuccess: () => {
@@ -414,13 +482,15 @@ const SubjectAccountabilityPage: React.FC = () => {
     // Open edit modal
     const openEditModal = (record: any) => {
         setEditRecord(record);
+        // FIXED: Extract date directly from string to avoid timezone shift
         setEditFirstDose(record.date_of_first_dose
-            ? new Date(record.date_of_first_dose).toISOString().split('T')[0]
+            ? record.date_of_first_dose.split('T')[0]
             : '');
         setEditLastDose(record.date_of_last_dose
-            ? new Date(record.date_of_last_dose).toISOString().split('T')[0]
+            ? record.date_of_last_dose.split('T')[0]
             : '');
         setEditPillsPerDay(record.pills_per_day || 1);
+        setEditReason(''); // Reset reason field
         setIsEditModalOpen(true);
     };
 
@@ -428,11 +498,18 @@ const SubjectAccountabilityPage: React.FC = () => {
     const handleEditSubmit = () => {
         if (!editRecord) return;
 
+        // CRITICAL: Validate Reason for Change (21 CFR Part 11 Requirement)
+        if (!editReason || editReason.trim().length < 10) {
+            setErrorMessage('Reason for change is required (minimum 10 characters) for 21 CFR Part 11 compliance');
+            return;
+        }
+
         editRecordMutation.mutate({
             id: editRecord.accountability_id.toString(),
             date_of_first_dose: editFirstDose || undefined,
             date_of_last_dose: editLastDose || undefined,
-            pills_per_day: editPillsPerDay
+            pills_per_day: editPillsPerDay,
+            reason: editReason
         });
     };
 
@@ -491,14 +568,18 @@ const SubjectAccountabilityPage: React.FC = () => {
         setReturnDate(new Date().toISOString().split('T')[0]);
         setReturnComments(record.comments || '');
         // Load First Dose Date from existing record (captured at dispense time)
-        // If not set, default to today
+        // FIXED: Extract date directly from string to avoid timezone shift
         setDateOfFirstDose(record.date_of_first_dose
-            ? new Date(record.date_of_first_dose).toISOString().split('T')[0]
+            ? record.date_of_first_dose.split('T')[0]
             : new Date().toISOString().split('T')[0]);
         // Don't pre-fill Last Dose - patient may have taken their last dose days ago
         setDateOfLastDose('');
         // Load Pills Per Day from existing record (captured at dispense time)
         setPillsPerDay(record.pills_per_day || 1);
+
+        // Reset pill counter state
+        setIsPillCounting(false);
+        setPillCountError('');
 
         // Check visit sequence warnings
         const sequenceWarnings = checkVisitSequenceWarnings(record);
@@ -510,6 +591,12 @@ const SubjectAccountabilityPage: React.FC = () => {
     // Handle return submission with enhanced compliance
     const handleReturn = () => {
         if (!selectedRecord) return;
+
+        // CRITICAL: Validate Reason for Change (21 CFR Part 11 Requirement)
+        if (!returnComments || returnComments.trim().length < 10) {
+            setErrorMessage('Reason for change is required (minimum 10 characters) for 21 CFR Part 11 compliance');
+            return;
+        }
 
         if (returnQty < 0) {
             setErrorMessage('Quantity returned cannot be negative');
@@ -535,19 +622,16 @@ const SubjectAccountabilityPage: React.FC = () => {
         }
 
         // Validate Last Dose >= First Dose
-        const firstDoseDate = new Date(effectiveFirstDose);
-        const lastDoseDate = new Date(dateOfLastDose);
-        if (lastDoseDate < firstDoseDate) {
+        // FIXED: Use parseDate helper to avoid timezone shift
+        const firstDoseDateObj = parseDate(effectiveFirstDose);
+        const lastDoseDateObj = parseDate(dateOfLastDose);
+        if (firstDoseDateObj && lastDoseDateObj && lastDoseDateObj.getTime() < firstDoseDateObj.getTime()) {
             setErrorMessage('Last Dose Date cannot be before First Dose Date');
             return;
         }
 
-        // Run date validations (warnings only, don't block)
-        const dateWarnings = validateReturnDates();
-        const allWarnings = [...validationWarnings.filter(w => !w.includes('Previous visit')), ...dateWarnings];
-
-        // Combine with sequence warnings for display
-        setValidationWarnings([...checkVisitSequenceWarnings(selectedRecord), ...dateWarnings]);
+        // Clear warnings before submitting (prevents flash of stale warnings)
+        setValidationWarnings([]);
 
         returnMutation.mutate({
             id: selectedRecord.accountability_id.toString(),
@@ -567,15 +651,22 @@ const SubjectAccountabilityPage: React.FC = () => {
             return null;
         }
 
-        const firstDose = new Date(dateOfFirstDose);
-        const lastDose = new Date(dateOfLastDose);
+        // FIXED: Use parseDate helper to avoid timezone shift
+        const firstDose = parseDate(dateOfFirstDose);
+        const lastDose = parseDate(dateOfLastDose);
+
+        if (!firstDose || !lastDose) return null;
+
         const timeDiff = lastDose.getTime() - firstDose.getTime();
         const daysUsed = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
 
         if (daysUsed <= 0) return null;
 
         const pillsUsed = selectedRecord.qty_dispensed - returnQty;
-        const expectedPills = daysUsed * pillsPerDay;
+        // Expected pills is the lesser of (days × pills/day) OR qty dispensed
+        // You can't expect someone to take more pills than they were given!
+        const theoreticalExpected = daysUsed * pillsPerDay;
+        const expectedPills = Math.min(theoreticalExpected, selectedRecord.qty_dispensed);
         const compliance = expectedPills > 0 ? Math.round((pillsUsed / expectedPills) * 100) : 0;
 
         // NEW: Add compliance warning flags
@@ -604,10 +695,14 @@ const SubjectAccountabilityPage: React.FC = () => {
 
         // Calculate from dates ONLY if BOTH dates are available
         if (record.date_of_first_dose && record.date_of_last_dose) {
-            const firstDose = new Date(record.date_of_first_dose);
-            const lastDose = new Date(record.date_of_last_dose);
-            const timeDiff = lastDose.getTime() - firstDose.getTime();
-            return Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
+            // FIXED: Use parseDate helper to avoid timezone shift
+            const firstDose = parseDate(record.date_of_first_dose);
+            const lastDose = parseDate(record.date_of_last_dose);
+
+            if (firstDose && lastDose) {
+                const timeDiff = lastDose.getTime() - firstDose.getTime();
+                return Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
+            }
         }
 
         // Cannot calculate without dates
@@ -615,16 +710,24 @@ const SubjectAccountabilityPage: React.FC = () => {
     };
 
     // Get expected pills from record (ONLY if we have days used)
+    // ALWAYS capped at qty_dispensed - can't expect more pills than were given!
     const getExpectedPills = (record: any) => {
-        // Use stored value if available
-        if (record.expected_pills) return record.expected_pills;
+        const qtyDispensed = record.qty_dispensed || 0;
+
+        // Use stored value if available, but ALWAYS apply cap
+        if (record.expected_pills) {
+            return Math.min(record.expected_pills, qtyDispensed);
+        }
 
         // Calculate ONLY if we have days used (which requires dates)
         const daysUsed = getDaysUsed(record);
         if (daysUsed === null) return null;
 
         const pillsPerDay = record.pills_per_day || 1;
-        return daysUsed * pillsPerDay;
+        const theoreticalExpected = daysUsed * pillsPerDay;
+
+        // Cap at quantity dispensed
+        return Math.min(theoreticalExpected, qtyDispensed);
     };
 
     // Get compliance percentage - uses correct formula: (Pills Used / Expected Pills) × 100
@@ -650,13 +753,21 @@ const SubjectAccountabilityPage: React.FC = () => {
             return { value: null, status: 'no_dates' };
         }
 
-        // Calculate properly with dates
-        const firstDose = new Date(record.date_of_first_dose);
-        const lastDose = new Date(record.date_of_last_dose);
+        // FIXED: Use parseDate helper to avoid timezone shift
+        const firstDose = parseDate(record.date_of_first_dose);
+        const lastDose = parseDate(record.date_of_last_dose);
+
+        if (!firstDose || !lastDose) {
+            return { value: null, status: 'no_dates' };
+        }
+
         const timeDiff = lastDose.getTime() - firstDose.getTime();
         const daysUsed = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1;
-        const pillsPerDay = record.pills_per_day || 1;
-        const expectedPills = daysUsed * pillsPerDay;
+        const pillsPerDayVal = record.pills_per_day || 1;
+        const theoreticalExpected = daysUsed * pillsPerDayVal;
+
+        // CRITICAL: Cap expected at qty_dispensed - can't expect more pills than were given!
+        const expectedPills = Math.min(theoreticalExpected, dispensed);
 
         if (expectedPills > 0) {
             const compliance = Math.round((pillsUsed / expectedPills) * 10000) / 100;
@@ -1149,17 +1260,60 @@ const SubjectAccountabilityPage: React.FC = () => {
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Pills Remaining in Bottle * <span className="text-gray-400">(max: {selectedRecord.qty_dispensed})</span>
                                 </label>
-                                <input
-                                    type="number"
-                                    value={returnQty}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        setReturnQty(val === '' ? 0 : parseInt(val));
-                                    }}
-                                    min={0}
-                                    max={selectedRecord.qty_dispensed}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        value={returnQty}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setReturnQty(val === '' ? 0 : parseInt(val));
+                                            setPillCountError(''); // Clear any pill count error when manually edited
+                                        }}
+                                        min={0}
+                                        max={selectedRecord.qty_dispensed}
+                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    {/* Pill Counter Button */}
+                                    <input
+                                        type="file"
+                                        id="pill-counter-input"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                handlePillCount(file);
+                                            }
+                                            // Reset input so same file can be selected again
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => document.getElementById('pill-counter-input')?.click()}
+                                        disabled={isPillCounting}
+                                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-wait flex items-center gap-2 whitespace-nowrap"
+                                        title="Upload pill image to auto-count"
+                                    >
+                                        {isPillCounting ? (
+                                            <>
+                                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Counting...
+                                            </>
+                                        ) : (
+                                            <>
+                                                📷 Pill Counter
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                                {/* Pill Count Error/Success Message */}
+                                {pillCountError && (
+                                    <p className="mt-1 text-sm text-amber-600">{pillCountError}</p>
+                                )}
                             </div>
 
                             {/* Compliance Calculation Section */}
@@ -1318,18 +1472,23 @@ const SubjectAccountabilityPage: React.FC = () => {
                                 </select>
                             </div>
 
-                            {/* Comments */}
+                            {/* Reason for Change - Required by 21 CFR Part 11 */}
                             <div className="mb-4">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Comments
+                                    Reason for Change <span className="text-red-500">*</span>
+                                    <span className="text-xs text-gray-500 ml-2">(Required by 21 CFR Part 11)</span>
                                 </label>
                                 <textarea
                                     value={returnComments}
                                     onChange={(e) => setReturnComments(e.target.value)}
-                                    rows={2}
+                                    required
+                                    rows={3}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Optional comments..."
+                                    placeholder="Example: Patient returned medication at scheduled Visit 2, compliant with protocol"
                                 />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Minimum 10 characters required
+                                </p>
                             </div>
                         </div>
 
@@ -1446,6 +1605,25 @@ const SubjectAccountabilityPage: React.FC = () => {
                                     max={10}
                                     className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
+                            </div>
+
+                            {/* Reason for Change - Required by 21 CFR Part 11 */}
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Reason for Change <span className="text-red-500">*</span>
+                                    <span className="text-xs text-gray-500 ml-2">(Required by 21 CFR Part 11)</span>
+                                </label>
+                                <textarea
+                                    value={editReason}
+                                    onChange={(e) => setEditReason(e.target.value)}
+                                    required
+                                    rows={2}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Example: Correcting data entry error - dates were not captured during initial dispense"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Minimum 10 characters required
+                                </p>
                             </div>
 
                             {/* Compliance Preview */}

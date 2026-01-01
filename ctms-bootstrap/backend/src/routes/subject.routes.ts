@@ -22,6 +22,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     try {
         const { site, status } = req.query;
 
+        // Get user's site and role from JWT for HIPAA filtering
+        const userSiteId = req.user?.siteId;
+        const isAdmin = req.user?.role === 'admin';
+
         let query = supabase
             .from('subjects')
             .select(`
@@ -37,9 +41,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       `)
             .order('created_at', { ascending: false });
 
-        if (site) {
+        // HIPAA: Non-admin users can only see subjects from their assigned site
+        if (!isAdmin && userSiteId) {
+            query = query.eq('site_id', userSiteId);
+        } else if (site) {
+            // Admin can filter by specific site if requested
             query = query.eq('site_id', site);
         }
+
         if (status) {
             query = query.eq('status', status);
         }
@@ -140,7 +149,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 sex: validatedData.sex,
                 consent_date: validatedData.consentDate,
                 enrollment_date: new Date().toISOString(),
-                site_id: validatedData.siteId || req.user?.siteId,
+                site_id: validatedData.siteId,
                 status: 'Active',
             }])
             .select()
