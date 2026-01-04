@@ -11,6 +11,7 @@ import accountabilityRoutes from './routes/accountability.routes.js';
 import drugRoutes from './routes/drug.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import reportRoutes from './routes/report.routes.js';
+import pillCounterRoutes from './routes/pillCounter.routes.js';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use('/api/accountability', accountabilityRoutes);
 app.use('/api/drug', drugRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/pill-counter', pillCounterRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

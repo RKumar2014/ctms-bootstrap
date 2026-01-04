@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -48,6 +48,10 @@ const SubjectAccountabilityPage: React.FC = () => {
     // Pill counter state
     const [isPillCounting, setIsPillCounting] = useState(false);
     const [pillCountError, setPillCountError] = useState('');
+    const [pillPreviewImage, setPillPreviewImage] = useState<string | null>(null);
+    const [pillPredictions, setPillPredictions] = useState<any[]>([]);
+    const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     // Edit record modal state (for fixing missing dates)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -338,8 +342,11 @@ const SubjectAccountabilityPage: React.FC = () => {
             // Remove data:image/...;base64, prefix if present
             const base64Image = base64.split(',')[1] || base64;
 
-            // Call NEW Roboflow model (pill-detection-ognln/8)
-            const response = await fetch('https://serverless.roboflow.com/pill-detection-ognln/8?api_key=us5nPRXtK3HK3V4fF1DC', {
+            // OLD MODEL (commented out):
+            // const response = await fetch('https://serverless.roboflow.com/pill-detection-ognln/10?api_key=us5nPRXtK3HK3V4fF1DC', {
+
+            // NEW MODEL: pill-detection-eye/1
+            const response = await fetch('https://serverless.roboflow.com/pill-detection-eye/1?api_key=us5nPRXtK3HK3V4fF1DC', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
@@ -348,16 +355,69 @@ const SubjectAccountabilityPage: React.FC = () => {
             });
 
             const data = await response.json();
-            console.log('Pill Counter API Response:', data);
 
-            // Extract count from response - new model returns predictions array
+            // 🔍 DEBUG: Log full API response to console
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🔬 PILL COUNTER API RESPONSE');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('📷 Image:', file.name);
+            console.log('📊 Full Response:', data);
+
+            if (data?.predictions) {
+                console.log('📈 Total Detections:', data.predictions.length);
+                console.log('🎯 Predictions Detail:');
+                data.predictions.forEach((pred: any, idx: number) => {
+                    console.log(`  [${idx + 1}] Conf: ${(pred.confidence * 100).toFixed(1)}% | ` +
+                        `Size: ${pred.width.toFixed(0)}x${pred.height.toFixed(0)} | ` +
+                        `Ratio: ${(pred.width / pred.height).toFixed(2)} | ` +
+                        `Pos: (${pred.x.toFixed(0)}, ${pred.y.toFixed(0)})`);
+                });
+            }
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+            // 🧮 SIMPLE PILL COUNTING: All predictions = 1 pill each
             let count = 0;
+            let filteredPredictions: any[] = [];
+
             if (data?.predictions && Array.isArray(data.predictions)) {
-                count = data.predictions.length;
+                // Light filter: remove obvious garbage (confidence < 50%)
+                const confidentPredictions = data.predictions.filter((p: any) => p.confidence >= 0.50);
+
+                console.log(`🔍 Confidence Filter: ${data.predictions.length} → ${confidentPredictions.length} (≥50%)`);
+
+                // Each pill counts as 1
+                confidentPredictions.forEach((pill: any, idx: number) => {
+                    filteredPredictions.push({
+                        ...pill,
+                        x: pill.x,
+                        y: pill.y
+                    });
+                    console.log(`   [${idx + 1}] Conf: ${(pill.confidence * 100).toFixed(1)}%`);
+                });
+
+                count = confidentPredictions.length;
+
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log(`📊 TOTAL PILL COUNT: ${count}`);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
             } else if (data?.outputs?.count_objects !== undefined) {
                 count = data.outputs.count_objects;
             } else if (Array.isArray(data)) {
                 count = data.length;
+            }
+
+            // 📝 Log to backend
+            try {
+                await api.post('/pill-counter/log-pill-count', {
+                    timestamp: new Date().toISOString(),
+                    imageFileName: file.name,
+                    apiResponse: data,
+                    totalCount: data?.predictions?.length || 0,
+                    filteredCount: count
+                });
+                console.log('✅ Logged to backend');
+            } catch (logError) {
+                console.warn('⚠️ Could not log to backend:', logError);
             }
 
             // Validate count against max allowed
@@ -368,13 +428,68 @@ const SubjectAccountabilityPage: React.FC = () => {
             } else {
                 setReturnQty(count);
             }
+
+            // 🎨 Store predictions and image for visualization
+            setPillPreviewImage(base64);
+            setPillPredictions(filteredPredictions);
+
+            // Get image dimensions for canvas scaling
+            const img = new Image();
+            img.onload = () => {
+                setImageSize({ width: data.image?.width || img.width, height: data.image?.height || img.height });
+            };
+            img.src = base64;
+
         } catch (error) {
-            console.error('Pill counting error:', error);
+            console.error('❌ Pill counting error:', error);
             setPillCountError('Failed to count pills. Please enter manually.');
         } finally {
             setIsPillCounting(false);
         }
     };
+
+    // 🎨 Draw colored dots on canvas when predictions update
+    useEffect(() => {
+        if (!canvasRef.current || !pillPreviewImage || pillPredictions.length === 0) return;
+
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const img = new Image();
+        img.onload = () => {
+            // Set canvas size to match image (scaled to fit container)
+            const maxWidth = 500;
+            const scale = Math.min(1, maxWidth / img.width);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+
+            // Draw image
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Draw green numbers for each pill
+            pillPredictions.forEach((pill: any, index: number) => {
+                const x = pill.x * scale;
+                const y = pill.y * scale;
+
+                // Draw big green number with black outline for visibility
+                const fontSize = Math.max(24 * scale, 16);
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Draw black outline
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3 * scale;
+                ctx.strokeText((index + 1).toString(), x, y);
+
+                // Draw green number
+                ctx.fillStyle = '#22c55e';
+                ctx.fillText((index + 1).toString(), x, y);
+            });
+        };
+        img.src = pillPreviewImage;
+    }, [pillPreviewImage, pillPredictions]);
 
     // Bulk submit mutation
     const submitMutation = useMutation({
@@ -1313,6 +1428,32 @@ const SubjectAccountabilityPage: React.FC = () => {
                                 {/* Pill Count Error/Success Message */}
                                 {pillCountError && (
                                     <p className="mt-1 text-sm text-amber-600">{pillCountError}</p>
+                                )}
+
+                                {/* 🎨 Pill Counter Visualization */}
+                                {pillPreviewImage && pillPredictions.length > 0 && (
+                                    <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-sm font-medium text-gray-700">Detection Preview</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setPillPreviewImage(null); setPillPredictions([]); }}
+                                                className="text-xs text-gray-500 hover:text-gray-700"
+                                            >
+                                                ✕ Close
+                                            </button>
+                                        </div>
+                                        <canvas
+                                            ref={canvasRef}
+                                            className="rounded border border-gray-200 w-full max-w-[500px]"
+                                        />
+                                        <div className="flex gap-4 mt-2 text-xs">
+                                            <span className="flex items-center gap-1">
+                                                <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                                                Pill (counted)
+                                            </span>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 
